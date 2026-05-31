@@ -11,6 +11,7 @@ type ActivityEventRow = {
   description: string | null;
   can_undo: boolean;
   created_at: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 export async function GET() {
@@ -24,7 +25,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("activity_events")
-    .select("id, type, title, description, can_undo, created_at")
+    .select("id, type, title, description, can_undo, created_at, metadata")
     .order("created_at", { ascending: false });
 
   if (error || !data) {
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
         metadata: payload.metadata ?? {}
       })
     )
-    .select("id, type, title, description, can_undo, created_at")
+    .select("id, type, title, description, can_undo, created_at, metadata")
     .maybeSingle();
 
   if (error || !data) {

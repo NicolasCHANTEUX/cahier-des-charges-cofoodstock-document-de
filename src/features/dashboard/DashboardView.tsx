@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Clock3, Heart, PackageSearch, ShoppingCart, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { PageHeader } from "@/components/shared/PageHeader";
 import type { DashboardPayload } from "@/lib/dashboard-data";
 import { formatQuantity } from "@/lib/units";
@@ -148,9 +149,7 @@ export function DashboardView() {
                 className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-4 py-3"
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-600">
-                    {item.icon}
-                  </span>
+                  <ProductThumbnail name={item.name} imageUrl={item.imageUrl} fallbackLabel={item.icon} />
                   <div className="min-w-0">
                     <p className="truncate font-medium">{item.name}</p>
                     <p className="truncate text-sm text-slate-500">

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
+import { proxiedOffImageUrl } from "@/lib/image-proxy";
 
 type RouteContext = {
   params: Promise<{ barcode: string }>;
@@ -48,7 +49,7 @@ export async function GET(_: Request, { params }: RouteContext) {
           name: existingProduct.name,
           brand: existingProduct.brand ?? undefined,
           category: existingProduct.category ?? undefined,
-          imageUrl: existingProduct.image_url ?? undefined,
+          imageUrl: proxiedOffImageUrl(existingProduct.image_url ?? undefined),
           source: "supabase" as const,
           quantityText: offProduct?.quantityText,
           quantityValue: offProduct?.quantityValue,
@@ -102,5 +103,12 @@ export async function GET(_: Request, { params }: RouteContext) {
     }
   }
 
-  return NextResponse.json({ ok: true, found: true, product });
+  return NextResponse.json({
+    ok: true,
+    found: true,
+    product: {
+      ...product,
+      imageUrl: proxiedOffImageUrl(product.imageUrl)
+    }
+  });
 }

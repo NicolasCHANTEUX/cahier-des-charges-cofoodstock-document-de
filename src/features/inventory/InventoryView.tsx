@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { QuantityPromptModal } from "@/components/shared/QuantityPromptModal";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { AddProductDialog } from "@/features/inventory/AddProductDialog";
 import { formatQuantity } from "@/lib/units";
 import type { InventoryItem } from "@/types/domain";
@@ -182,9 +183,7 @@ export function InventoryView() {
               >
                 <input className="hidden h-5 w-5 rounded border-slate-300 sm:block" type="checkbox" />
                 <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-600">
-                    {item.icon}
-                  </span>
+                  <ProductThumbnail name={item.name} imageUrl={item.imageUrl} fallbackLabel={item.icon} />
                   <div className="min-w-0 sm:hidden">
                     <p className="truncate font-medium">{item.name}</p>
                     <p className="truncate text-sm text-slate-500">

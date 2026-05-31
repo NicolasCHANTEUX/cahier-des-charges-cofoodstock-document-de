@@ -1,4 +1,5 @@
 import { mockInventory } from "@/lib/mock-data";
+import { proxiedOffImageUrl } from "@/lib/image-proxy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BadgeTone, InventoryItem, QuantityUnit, StorageArea } from "@/types/domain";
 
@@ -48,6 +49,7 @@ type InventorySummaryRow = {
   nearest_expiration_date: string | null;
   total_quantity_remaining: number;
   unit: string;
+  image_url: string | null;
 };
 
 export async function createDashboardPayload(): Promise<DashboardPayload> {
@@ -147,7 +149,7 @@ async function loadInventory() {
 
     const { data, error } = await supabase
       .from("active_inventory_summary")
-      .select("product_id, name, storage_area, nearest_expiration_date, total_quantity_remaining, unit")
+      .select("product_id, name, storage_area, nearest_expiration_date, total_quantity_remaining, unit, image_url")
       .order("nearest_expiration_date", { ascending: true, nullsFirst: false })
       .order("name", { ascending: true });
 
@@ -159,6 +161,7 @@ async function loadInventory() {
       id: row.product_id,
       name: row.name,
       icon: createIconLabel(row.name),
+      imageUrl: proxiedOffImageUrl(row.image_url ?? undefined),
       quantity: Number(row.total_quantity_remaining),
       unit: normalizeUnit(row.unit),
       storageArea: normalizeStorageArea(row.storage_area),

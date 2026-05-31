@@ -3,6 +3,7 @@
 import { type FormEvent, useState } from "react";
 import { Barcode, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import type { AddInventoryInput } from "@/features/mvp/useMvpStore";
 import type { QuantityUnit, StorageArea } from "@/types/domain";
 
@@ -215,11 +216,16 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
 
           {lookup.status === "found" ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-              <div className="mb-2 flex items-center gap-2 font-semibold">
-                <Barcode className="h-4 w-4" />
-                Produit trouvé
+              <div className="mb-2 flex items-start gap-3 font-semibold">
+                <ProductThumbnail name={lookup.label} imageUrl={lookup.imageUrl} fallbackLabel={lookup.label} className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-emerald-200 bg-white text-xs font-bold text-emerald-700" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Barcode className="h-4 w-4" />
+                    <span>Produit trouvé</span>
+                  </div>
+                  <p className="truncate font-semibold text-emerald-900">{lookup.label}</p>
+                </div>
               </div>
-              <p>{lookup.label}</p>
               {lookup.brand ? <p className="text-emerald-700">Marque: {lookup.brand}</p> : null}
               {lookup.category ? <p className="text-emerald-700">Catégorie: {lookup.category}</p> : null}
               {lookup.quantityText ? <p className="text-emerald-700">Quantité: {lookup.quantityText}</p> : null}

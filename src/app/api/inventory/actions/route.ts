@@ -107,7 +107,7 @@ export async function POST(req: Request) {
               ? `${appliedQuantity} ${batch.unit} ajuste manuellement`
               : `${appliedQuantity} ${batch.unit} retire du stock`,
         product_id: productId,
-        can_undo: false,
+        can_undo: true,
         metadata: {
           source: "inventory_action",
           action,

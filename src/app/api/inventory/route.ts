@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mockInventory } from "@/lib/mock-data";
+import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
+import { proxiedOffImageUrl } from "@/lib/image-proxy";
 
 type InventorySummaryRow = {
   household_id: string;
@@ -8,6 +10,7 @@ type InventorySummaryRow = {
   name: string;
   brand: string | null;
   category: string | null;
+  barcode?: string | null;
   image_url: string | null;
   storage_area: string;
   nearest_expiration_date: string | null;
@@ -34,10 +37,59 @@ export async function GET() {
     return NextResponse.json({ ok: true, inventory: mockInventory, warning: error?.message ?? "inventory_view_fallback" });
   }
 
-  const inventory = (data as InventorySummaryRow[]).map((row) => ({
+  const rows = data as InventorySummaryRow[];
+
+  const missingImageRows = rows.filter((row) => !row.image_url);
+  const fallbackImageMap = new Map<string, string>();
+
+  if (missingImageRows.length > 0) {
+    const { data: productRows } = await supabase
+      .from("products")
+      .select("id, barcode, image_url")
+      .in(
+        "id",
+        missingImageRows.map((row) => row.product_id)
+      );
+
+    const productIndex = new Map<string, { barcode?: string | null; image_url?: string | null }>();
+    (productRows ?? []).forEach((product) => {
+      productIndex.set(product.id, { barcode: product.barcode, image_url: product.image_url });
+    });
+
+    await Promise.all(
+      missingImageRows.map(async (row) => {
+        const product = productIndex.get(row.product_id);
+
+        if (product?.image_url) {
+          fallbackImageMap.set(row.product_id, product.image_url);
+          return;
+        }
+
+        if (!product?.barcode) {
+          return;
+        }
+
+        const offProduct = await lookupOpenFoodFactsProduct(product.barcode).catch(() => null);
+
+        if (!offProduct?.imageUrl) {
+          return;
+        }
+
+        fallbackImageMap.set(row.product_id, offProduct.imageUrl);
+
+        await supabase
+          .from("products")
+          .update({ image_url: offProduct.imageUrl })
+          .eq("id", row.product_id);
+      })
+    );
+  }
+
+  const inventory = rows.map((row) => ({
     id: row.product_id,
     name: row.name,
     icon: createIconLabel(row.name),
+    imageUrl: proxiedOffImageUrl(row.image_url ?? fallbackImageMap.get(row.product_id) ?? undefined),
     quantity: Number(row.total_quantity_remaining),
     unit: normalizeUnit(row.unit),
     storageArea: normalizeStorageArea(row.storage_area),

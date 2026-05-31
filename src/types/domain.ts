@@ -17,6 +17,7 @@ export type InventoryItem = {
   id: string;
   name: string;
   icon: string;
+  imageUrl?: string;
   quantity: number;
   unit: QuantityUnit;
   storageArea: StorageArea;
@@ -38,6 +39,7 @@ export type ShoppingItem = {
   label: string;
   quantity: string;
   icon: string;
+  imageUrl?: string;
   checked?: boolean;
 };
 
@@ -46,6 +48,7 @@ export type ShoppingSuggestion = {
   label: string;
   reason: string;
   icon: string;
+  imageUrl?: string;
 };
 
 export type ActivityGroup = {
@@ -68,6 +71,7 @@ export type ActivityEvent = {
   color: string;
   canUndo: boolean;
   createdAt: string;
+  metadata?: Record<string, unknown>;
   undoPayload?: UndoPayload;
 };
 

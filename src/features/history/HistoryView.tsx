@@ -3,18 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { History } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { groupActivityEvents } from "@/lib/activity-events";
 import type { ActivityEvent } from "@/types/domain";
 
 const filters = ["Tout", "Entrees", "Consommes", "Jetes"];
+const SETTINGS_STORAGE_KEY = "ecofoodstock:settings-profile";
 
 export function HistoryView() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState("Tout");
+  const [undoingEventId, setUndoingEventId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadHistory();
@@ -37,6 +40,44 @@ export function HistoryView() {
       setError("Impossible de charger l'historique depuis Supabase.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function undoEvent(event: ActivityEvent) {
+    if (!event.canUndo || undoingEventId) {
+      return;
+    }
+
+    setUndoingEventId(event.id);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/history/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: event.id })
+      });
+
+      const payload = (await response.json()) as {
+        ok: boolean;
+        message?: string;
+        restoredSettingsProfile?: Record<string, unknown>;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message ?? `HTTP ${response.status}`);
+      }
+
+      // If undo restored settings from server metadata, mirror that in local storage.
+      if (payload.restoredSettingsProfile) {
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload.restoredSettingsProfile));
+      }
+
+      await loadHistory();
+    } catch {
+      setError("Impossible d'annuler cette action pour le moment.");
+    } finally {
+      setUndoingEventId(null);
     }
   }
 
@@ -97,7 +138,16 @@ export function HistoryView() {
                         {event.description} - {formatActivityTime(event.createdAt)}
                       </p>
                     </div>
-                    {event.canUndo ? <span className="text-xs text-slate-400">Annulable bientôt</span> : null}
+                    {event.canUndo ? (
+                      <Button
+                        variant="secondary"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => void undoEvent(event)}
+                        disabled={undoingEventId === event.id}
+                      >
+                        {undoingEventId === event.id ? "Annulation..." : "Annuler"}
+                      </Button>
+                    ) : null}
                   </div>
                 ))}
               </Card>

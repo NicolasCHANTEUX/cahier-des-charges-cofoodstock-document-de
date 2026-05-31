@@ -176,7 +176,7 @@ export async function POST(req: Request) {
         title: `+${quantity} ${product.name} ajoute au stock`,
         description: `${quantity} ${unit ?? "unit"} - ajout via scan`,
         product_id: productId,
-        can_undo: false,
+        can_undo: true,
         metadata: {
           source: "scan",
           inventory_batch_id: batch.id,

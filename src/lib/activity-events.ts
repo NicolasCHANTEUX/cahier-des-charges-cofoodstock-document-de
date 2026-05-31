@@ -19,6 +19,7 @@ type ActivityEventRow = {
   description: string | null;
   can_undo: boolean;
   created_at: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 export function buildActivityEventInsert(input: ActivityEventInsert): ActivityEventInsert {
@@ -41,7 +42,8 @@ export function mapActivityEventRow(row: ActivityEventRow): ActivityEvent {
     description: row.description ?? "",
     color: colorForActivityType(row.type),
     canUndo: row.can_undo,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    metadata: row.metadata ?? undefined
   };
 }
 

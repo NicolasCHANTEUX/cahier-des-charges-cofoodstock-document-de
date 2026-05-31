@@ -55,13 +55,14 @@ export function SettingsView() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            type: "undo",
+            type: "product_adjusted",
             title: "Paramètres mis à jour",
             description: `${changes}. IMC ${formatBmi(bmi)}, besoin ${formatCalories(maintenanceCalories)}, objectif ${getGoalLabel(profile.goal)} (${profile.dailyCaloriesAdjustment > 0 ? "+" : ""}${profile.dailyCaloriesAdjustment} kcal).`,
-            canUndo: false,
+            canUndo: true,
             metadata: {
               section: "settings",
-              profile
+              previous_profile: baselineRef.current,
+              next_profile: profile
             }
           })
         });

@@ -19,27 +19,37 @@ export type OpenFoodFactsLookupResult = {
   source: "open_food_facts";
 };
 
-type OpenFoodFactsApiResponse = {
-  status: number;
-  product?: {
-    code?: string;
-    product_name?: string;
-    brands?: string;
-    categories?: string;
-    image_front_url?: string;
-    image_url?: string;
-    quantity?: string;
-    nutriscore_grade?: string;
-    nutriments?: {
-      "energy-kcal_100g"?: number;
-      proteins_100g?: number;
-      carbohydrates_100g?: number;
-      fat_100g?: number;
-      fiber_100g?: number;
-      sugars_100g?: number;
-      salt_100g?: number;
+type OpenFoodFactsProduct = {
+  code?: string;
+  product_name?: string;
+  brands?: string;
+  categories?: string;
+  image_front_url?: string;
+  image_url?: string;
+  selected_images?: {
+    front?: {
+      display?: { en?: string; fr?: string; ar?: string };
+      small?: { en?: string; fr?: string; ar?: string };
+      thumb?: { en?: string; fr?: string; ar?: string };
     };
   };
+  quantity?: string;
+  nutriscore_grade?: string;
+  nutriments?: {
+    "energy-kcal_100g"?: number;
+    proteins_100g?: number;
+    carbohydrates_100g?: number;
+    fat_100g?: number;
+    fiber_100g?: number;
+    sugars_100g?: number;
+    salt_100g?: number;
+  };
+};
+
+type OpenFoodFactsApiResponse = {
+  status: number;
+  product?: OpenFoodFactsProduct;
+  products?: OpenFoodFactsProduct[];
 };
 
 export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenFoodFactsLookupResult | null> {
@@ -65,16 +75,48 @@ export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenF
     return null;
   }
 
-  const product = payload.product;
+  return mapOffProduct(payload.product, cleanBarcode);
+}
+
+export async function searchOpenFoodFactsProducts(query: string, pageSize = 1): Promise<OpenFoodFactsLookupResult[]> {
+  const cleanQuery = query.trim();
+
+  if (!cleanQuery) {
+    return [];
+  }
+
+  const response = await fetch(
+    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQuery)}&search_simple=1&action=process&json=1&page_size=${pageSize}`,
+    {
+      headers: {
+        "User-Agent": "EcoFoodStock/0.1.0"
+      }
+    }
+  );
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as OpenFoodFactsApiResponse;
+
+  if (!Array.isArray(payload.products)) {
+    return [];
+  }
+
+  return payload.products.filter(Boolean).slice(0, pageSize).map((product) => mapOffProduct(product));
+}
+
+function mapOffProduct(product: OpenFoodFactsProduct, fallbackBarcode?: string): OpenFoodFactsLookupResult {
   const parsedQuantity = parseQuantityText(product.quantity?.trim());
   const inferredStorageArea = inferStorageArea(product.categories, product.product_name, product.quantity);
 
   return {
-    barcode: product.code ?? cleanBarcode,
+    barcode: product.code ?? fallbackBarcode ?? "",
     name: product.product_name?.trim() || "Produit sans nom",
     brand: product.brands?.split(",").map((value) => value.trim()).filter(Boolean)[0],
     category: product.categories?.split(",").map((value) => value.trim()).filter(Boolean)[0],
-    imageUrl: product.image_front_url || product.image_url,
+    imageUrl: extractImageUrl(product),
     quantityText: product.quantity?.trim(),
     quantityValue: parsedQuantity?.value,
     quantityUnit: parsedQuantity?.unit,
@@ -161,4 +203,20 @@ function inferStorageArea(categories?: string, name?: string, quantity?: string)
 
 function containsAny(haystack: string, keywords: string[]) {
   return keywords.some((keyword) => haystack.includes(keyword));
+}
+
+function extractImageUrl(product: OpenFoodFactsProduct) {
+  return (
+    product.image_front_url ||
+    product.image_url ||
+    product.selected_images?.front?.display?.fr ||
+    product.selected_images?.front?.display?.en ||
+    product.selected_images?.front?.display?.ar ||
+    product.selected_images?.front?.small?.fr ||
+    product.selected_images?.front?.small?.en ||
+    product.selected_images?.front?.small?.ar ||
+    product.selected_images?.front?.thumb?.fr ||
+    product.selected_images?.front?.thumb?.en ||
+    product.selected_images?.front?.thumb?.ar
+  );
 }
