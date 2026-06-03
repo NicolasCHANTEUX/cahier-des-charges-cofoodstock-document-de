@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 
@@ -18,6 +19,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
+  const context = await resolveAccountContext(req, supabase);
+
   // fetch the activity event
   const { data: evRow, error: evErr } = await supabase.from("activity_events").select("id, household_id, type, title, can_undo, undone_at, metadata").eq("id", eventId).maybeSingle();
 
@@ -27,6 +30,10 @@ export async function POST(req: Request) {
 
   if (!evRow.can_undo) {
     return NextResponse.json({ ok: false, message: "Event cannot be undone" }, { status: 400 });
+  }
+
+  if (context.householdId && evRow.household_id !== context.householdId) {
+    return NextResponse.json({ ok: false, message: "Event not found" }, { status: 404 });
   }
 
   if (evRow.undone_at) {

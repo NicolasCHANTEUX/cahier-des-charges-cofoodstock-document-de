@@ -61,6 +61,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
+OAuth setup:
+
+- Configure Google / Apple providers in the Supabase dashboard.
+- Add the redirect URIs used by your app (e.g. `http://localhost:3000` for local dev and `https://your-domain.com` for production).
+- Ensure the Supabase project's authentication settings allow the selected providers.
+
+
 ## Documents de cadrage
 
 - `architecture-ecofoodstock.md`

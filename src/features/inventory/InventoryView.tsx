@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { AddProductDialog } from "@/features/inventory/AddProductDialog";
 import { formatQuantity } from "@/lib/units";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { InventoryItem } from "@/types/domain";
 
 const filters = ["Tous", "Frais", "Surgeles", "Sec", "DLC Proche"];
@@ -34,7 +35,10 @@ export function InventoryView() {
     setError(null);
 
     try {
-      const response = await fetch("/api/inventory", { cache: "no-store" });
+      const response = await fetch("/api/inventory", {
+        cache: "no-store",
+        headers: await getBrowserAuthHeaders()
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -82,9 +86,10 @@ export function InventoryView() {
     setMutatingId(item.id);
 
     try {
+      const authHeaders = await getBrowserAuthHeaders();
       const response = await fetch("/api/inventory/actions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           productId: item.id,
           action,

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { groupActivityEvents } from "@/lib/activity-events";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { ActivityEvent } from "@/types/domain";
 
 const filters = ["Tout", "Entrees", "Consommes", "Jetes"];
@@ -28,7 +29,10 @@ export function HistoryView() {
     setError(null);
 
     try {
-      const response = await fetch("/api/history", { cache: "no-store" });
+      const response = await fetch("/api/history", {
+        cache: "no-store",
+        headers: await getBrowserAuthHeaders()
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -52,9 +56,10 @@ export function HistoryView() {
     setError(null);
 
     try {
+      const authHeaders = await getBrowserAuthHeaders();
       const response = await fetch("/api/history/undo", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({ eventId: event.id })
       });
 

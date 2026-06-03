@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { mapActivityEventRow } from "@/lib/activity-events";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
@@ -14,7 +15,7 @@ type ActivityEventRow = {
   metadata?: Record<string, unknown> | null;
 };
 
-export async function GET() {
+export async function GET(req: Request) {
   let supabase;
 
   try {
@@ -23,10 +24,22 @@ export async function GET() {
     return NextResponse.json({ ok: true, groups: [] });
   }
 
-  const { data, error } = await supabase
+  const context = await resolveAccountContext(req, supabase);
+
+  if (context.authenticated && !context.householdId) {
+    return NextResponse.json({ ok: true, events: [] });
+  }
+
+  let query = supabase
     .from("activity_events")
     .select("id, type, title, description, can_undo, created_at, metadata")
     .order("created_at", { ascending: false });
+
+  if (context.householdId) {
+    query = query.eq("household_id", context.householdId);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) {
     return NextResponse.json({ ok: true, groups: [], warning: error?.message ?? "history_fallback" });
@@ -51,10 +64,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
+  const context = await resolveAccountContext(req, supabase);
+
   let householdId: string;
 
   try {
-    householdId = await ensureDemoHousehold(supabase);
+    householdId = context.householdId ?? (await ensureDemoHousehold(supabase));
   } catch (error) {
     return NextResponse.json({ ok: false, message: "Unable to resolve demo household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
@@ -64,6 +79,7 @@ export async function POST(req: Request) {
     .insert(
       buildActivityEventInsert({
         household_id: householdId,
+        user_id: context.appUserId ?? null,
         type: payload.type ?? "undo",
         title: String(payload.title),
         description: payload.description ?? null,

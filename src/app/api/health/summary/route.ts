@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function safeNumber(v: any) {
@@ -24,7 +25,18 @@ export async function GET(req: Request) {
     });
   }
 
-  const householdId = req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+  const context = await resolveAccountContext(req, supabase);
+  const householdId = context.householdId || req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+
+  if (context.authenticated && !context.householdId) {
+    return NextResponse.json({
+      ok: true,
+      macronutrients: { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+      freshnessRatio: { fresh: 0, processed: 0 },
+      radar: { fruits: 0, vegetables: 0, starches: 0, dairy: 0, proteins: 0 },
+      seasonalityScore: 0
+    });
+  }
 
   // Compute since timestamp for last 7 days
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -36,6 +48,7 @@ export async function GET(req: Request) {
       .select(
         `product_id,quantity_delta,unit,created_at,products!inner(id,name,is_raw_fresh,is_seasonal,category,product_nutrition(per_unit,calories_kcal,protein_g,carbs_g,fat_g))`
       )
+      .eq("household_id", householdId)
       .in("type", ["consume", "cook"]) // consider consume/cook as intake
       .gte("created_at", since)
       .maybeSingle();
@@ -82,6 +95,7 @@ export async function GET(req: Request) {
       const { data: batches } = await supabase
         .from("inventory_batches")
         .select("quantity_remaining,unit,products(id,is_raw_fresh,is_seasonal,category,name)")
+        .eq("household_id", householdId)
         .eq("status", "active");
 
       if (Array.isArray(batches)) {

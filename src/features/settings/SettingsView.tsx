@@ -1,24 +1,82 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Settings, Target, UsersRound } from "lucide-react";
+import { ChevronDown, ChevronUp, LogOut, RotateCcw, Settings, Target, UsersRound } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { buildAccountStorageKey } from "@/lib/account-storage";
+import { routes } from "@/lib/routes";
 import { buildSettingsChangeSummary, calculateBmi, calculateBmr, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
 
 const STORAGE_KEY = "ecofoodstock:settings-profile";
 
 export function SettingsView() {
+  const router = useRouter();
   const [profile, setProfile] = useState<SettingsProfile>(defaultSettingsProfile);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const baselineRef = useRef<SettingsProfile>(defaultSettingsProfile);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    (async () => {
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const { data } = await supabase.auth.getSession();
+        const userId = data.session?.user?.id ?? "guest";
+        const nextStorageKey = `${STORAGE_KEY}:${userId}`;
+        setStorageKey(nextStorageKey);
+
+        const stored = window.localStorage.getItem(nextStorageKey);
+
+        if (stored) {
+          const parsed = JSON.parse(stored) as SettingsProfile;
+          setProfile(parsed);
+          baselineRef.current = parsed;
+          setAdvancedOpen(parsed.appMode === "athlete");
+        }
+      } catch {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored) as SettingsProfile;
+            setProfile(parsed);
+            baselineRef.current = parsed;
+            setAdvancedOpen(parsed.appMode === "athlete");
+          } catch {
+            setProfile(defaultSettingsProfile);
+            baselineRef.current = defaultSettingsProfile;
+          }
+        }
+      } finally {
+        setLoaded(true);
+      }
+    })();
+  }, []);
+  
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setStorageKey(buildAccountStorageKey(STORAGE_KEY, data.user?.id ?? null));
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) return;
+
+    const stored = window.localStorage.getItem(storageKey);
 
     if (stored) {
       try {
@@ -33,7 +91,7 @@ export function SettingsView() {
     }
 
     setLoaded(true);
-  }, []);
+  }, [storageKey]);
 
   const bmi = useMemo(() => calculateBmi(profile), [profile]);
   const bmr = useMemo(() => calculateBmr(profile), [profile]);
@@ -46,7 +104,8 @@ export function SettingsView() {
     setStatus(null);
 
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+      const nextStorageKey = storageKey ?? STORAGE_KEY;
+      window.localStorage.setItem(nextStorageKey, JSON.stringify(profile));
 
       const changes = buildSettingsChangeSummary(baselineRef.current, profile);
 
@@ -94,6 +153,89 @@ export function SettingsView() {
 
     if (appMode === "athlete") {
       setAdvancedOpen(true);
+    }
+  }
+
+  async function generateInvite() {
+    setGeneratingInvite(true);
+    setStatus(null);
+    setInviteToken(null);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        setStatus("Veuillez vous connecter pour générer une invitation.");
+        return;
+      }
+
+      const res = await fetch("/api/household/invite", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setStatus(json?.error ?? "Impossible de generer l'invitation.");
+        return;
+      }
+
+      setInviteToken(json.token);
+      setInviteExpiresAt(json.expires_at || null);
+      setStatus("Invitation generee.");
+    } catch (err) {
+      setStatus("Erreur lors de la generation de l'invitation.");
+    } finally {
+      setGeneratingInvite(false);
+    }
+  }
+
+  function copyInvite() {
+    if (!inviteToken) return;
+    const url = `${window.location.origin}/join?token=${encodeURIComponent(inviteToken)}`;
+    navigator.clipboard.writeText(url).then(() => setStatus("Lien d'invitation copie."));
+  }
+
+  async function signOut() {
+    setSigningOut(true);
+    setStatus(null);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        throw error;
+      }
+
+      router.replace(routes.login);
+    } catch {
+      setStatus("Impossible de vous deconnecter pour le moment.");
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
+  async function clearLocalCache() {
+    setClearingCache(true);
+    setStatus(null);
+
+    try {
+      await Promise.all([
+        clearCacheStorage(),
+        unregisterServiceWorkers()
+      ]);
+
+      clearEcoFoodStockStorage(window.localStorage);
+      clearEcoFoodStockStorage(window.sessionStorage);
+      setInviteToken(null);
+      setInviteExpiresAt(null);
+      setStatus("Cache local vide. Rechargez la page pour repartir sur un etat propre.");
+    } catch {
+      setStatus("Impossible de vider tout le cache local pour le moment.");
+    } finally {
+      setClearingCache(false);
     }
   }
 
@@ -187,6 +329,69 @@ export function SettingsView() {
                 </button>
               </div>
             </div>
+          </div>
+        </Card>
+
+          <Card>
+            <div className="mb-5 flex items-center gap-3">
+              <UsersRound className="h-5 w-5 text-green-600" />
+              <h2 className="text-xl font-bold">Invitations</h2>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600">Invitez des membres dans votre foyer en generant un lien.</p>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button onClick={() => void generateInvite()} disabled={generatingInvite}>
+                  {generatingInvite ? "Génération..." : "Generer une invitation"}
+                </Button>
+
+                {inviteToken ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      className="h-11 rounded-lg border px-3"
+                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${inviteToken}`}
+                    />
+                    <Button variant="secondary" onClick={copyInvite}>
+                      Copier
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
+              {inviteExpiresAt ? <p className="text-xs text-slate-500">Expire le {new Date(inviteExpiresAt).toLocaleString()}</p> : null}
+            </div>
+          </Card>
+
+        <Card>
+          <div className="mb-5 flex items-center gap-3">
+            <Settings className="h-5 w-5 text-slate-600" />
+            <h2 className="text-xl font-bold">Session & developpement</h2>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button
+              variant="secondary"
+              type="button"
+              className="gap-2"
+              onClick={() => void clearLocalCache()}
+              disabled={clearingCache || signingOut}
+            >
+              <RotateCcw className="h-4 w-4" />
+              {clearingCache ? "Nettoyage..." : "Vider le cache local"}
+            </Button>
+
+            <Button
+              variant="danger"
+              type="button"
+              className="gap-2"
+              onClick={() => void signOut()}
+              disabled={signingOut || clearingCache}
+            >
+              <LogOut className="h-4 w-4" />
+              {signingOut ? "Deconnexion..." : "Se deconnecter"}
+            </Button>
           </div>
         </Card>
 
@@ -341,5 +546,37 @@ export function SettingsView() {
       </div>
     </div>
   );
+}
+
+function clearEcoFoodStockStorage(storage: Storage) {
+  const keysToDelete: string[] = [];
+
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+
+    if (key?.startsWith("ecofoodstock:") || key?.startsWith("ecofoodstock-")) {
+      keysToDelete.push(key);
+    }
+  }
+
+  keysToDelete.forEach((key) => storage.removeItem(key));
+}
+
+async function clearCacheStorage() {
+  if (!("caches" in window)) {
+    return;
+  }
+
+  const keys = await caches.keys();
+  await Promise.all(keys.map((key) => caches.delete(key)));
+}
+
+async function unregisterServiceWorkers() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations.map((registration) => registration.unregister()));
 }
 

@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Barcode, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { AddInventoryInput } from "@/features/mvp/useMvpStore";
 import type { QuantityUnit, StorageArea } from "@/types/domain";
 
@@ -135,9 +136,18 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
       try {
         const response = await fetch("/api/inventory/batches", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
           body: JSON.stringify({
-            product: { name, barcode: barcode.trim() || undefined },
+            product: {
+              name,
+              barcode: barcode.trim() || undefined,
+              brand: lookup.status === "found" ? lookup.brand : undefined,
+              category: lookup.status === "found" ? lookup.category : undefined,
+              imageUrl: lookup.status === "found" ? lookup.imageUrl : undefined,
+              source: barcode.trim() ? "open_food_facts" : "manual",
+              default_storage_area: storageArea,
+              default_unit: unit
+            },
             quantity: numericQuantity,
             unit,
             storageArea,

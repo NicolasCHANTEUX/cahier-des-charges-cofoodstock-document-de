@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 
@@ -23,8 +24,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
-  // Ensure we have a household: prefer header, then env, otherwise create a demo household
-  let householdId = req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+  const context = await resolveAccountContext(req, supabase);
+
+  let householdId = context.householdId;
+
+  if (context.authenticated) {
+    try {
+      householdId = await ensureUserHousehold(supabase, context);
+    } catch (error) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+
+    if (!householdId) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve user account" }, { status: 500 });
+    }
+  } else {
+    householdId = req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+  }
 
   if (!householdId) {
     const { data: created, error: createErr } = await supabase
@@ -131,6 +147,7 @@ export async function POST(req: Request) {
     unit: unit ?? "unit",
     storage_area: storageArea ?? "other",
     expiration_date: expirationDate ?? null,
+    added_by: context.appUserId ?? null,
     notes: notes ?? null,
     source: "scan"
   };
@@ -150,6 +167,7 @@ export async function POST(req: Request) {
     household_id: householdId,
     inventory_batch_id: batch.id,
     product_id: productId,
+    user_id: context.appUserId ?? null,
     type: "add",
     quantity_delta: quantity,
     unit: unit ?? "unit",
@@ -172,6 +190,7 @@ export async function POST(req: Request) {
     .insert(
       buildActivityEventInsert({
         household_id: householdId || batch.household_id,
+        user_id: context.appUserId ?? null,
         type: "product_added",
         title: `+${quantity} ${product.name} ajoute au stock`,
         description: `${quantity} ${unit ?? "unit"} - ajout via scan`,

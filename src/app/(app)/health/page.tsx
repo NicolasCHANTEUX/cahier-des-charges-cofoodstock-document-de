@@ -9,6 +9,8 @@ import { TrendChart } from "@/components/health/TrendChart";
 import { FreshVsProcessedCard } from "@/components/health/FreshVsProcessedCard";
 import { RadarFamiliesCard } from "@/components/health/RadarFamiliesCard";
 import { SeasonalityCard } from "@/components/health/SeasonalityCard";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   defaultSettingsProfile,
   calculateBmi,
@@ -27,14 +29,28 @@ export default function HealthPage() {
   const [profile, setProfile] = useState<SettingsProfile>(defaultSettingsProfile);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setProfile(JSON.parse(stored) as SettingsProfile);
+    (async () => {
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const { data } = await supabase.auth.getSession();
+        const userId = data.session?.user?.id ?? "guest";
+        const nextStorageKey = `${STORAGE_KEY}:${userId}`;
+
+        const stored = window.localStorage.getItem(nextStorageKey);
+        if (stored) {
+          setProfile(JSON.parse(stored) as SettingsProfile);
+        }
+      } catch {
+        try {
+          const stored = window.localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            setProfile(JSON.parse(stored) as SettingsProfile);
+          }
+        } catch {
+          // ignore and keep defaults
+        }
       }
-    } catch (e) {
-      // ignore and keep defaults
-    }
+    })();
   }, []);
 
   const bmi = useMemo(() => calculateBmi(profile), [profile]);
@@ -47,15 +63,19 @@ export default function HealthPage() {
     let cancelled = false;
     setLoading(true);
 
-    fetch("/api/health/summary")
-      .then((r) => r.json())
-      .then((data) => {
+    (async () => {
+      try {
+        const response = await fetch("/api/health/summary", {
+          headers: await getBrowserAuthHeaders()
+        });
+        const data = await response.json();
         if (!cancelled) setSummary(data);
-      })
-      .catch(() => {})
-      .finally(() => {
+      } catch {
+        // ignore and keep summary empty
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

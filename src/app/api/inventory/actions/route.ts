@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type InventoryAction = "consume" | "waste" | "adjust";
@@ -25,8 +26,6 @@ export async function POST(req: Request) {
   const productId = String(payload.productId ?? "");
   const action = String(payload.action ?? "") as InventoryAction;
   const quantity = Number(payload.quantity);
-  const householdId = String(payload.householdId ?? process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID ?? process.env.DEMO_HOUSEHOLD_ID ?? "");
-
   if (!productId || !["consume", "waste", "adjust"].includes(action) || !Number.isFinite(quantity) || quantity <= 0) {
     return NextResponse.json({ ok: false, message: "Invalid payload" }, { status: 400 });
   }
@@ -39,10 +38,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
+  const context = await resolveAccountContext(req, supabase);
+  const householdId = context.householdId ?? String(payload.householdId ?? process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID ?? process.env.DEMO_HOUSEHOLD_ID ?? "");
+
   const { data: batch, error: batchError } = await supabase
     .from("inventory_batches")
     .select("id, household_id, product_id, quantity_remaining, unit, status, expiration_date, storage_area")
     .eq("product_id", productId)
+    .eq("household_id", householdId)
     .eq("status", "active")
     .gt("quantity_remaining", 0)
     .order("created_at", { ascending: true })
@@ -93,6 +96,7 @@ export async function POST(req: Request) {
     .insert(
       buildActivityEventInsert({
         household_id: householdId || batch.household_id,
+        user_id: context.appUserId ?? null,
         type: movementType === "waste" ? "product_wasted" : movementType === "adjust" ? "product_adjusted" : "product_consumed",
         title:
           movementType === "waste"
@@ -123,6 +127,7 @@ export async function POST(req: Request) {
     .from("inventory_movements")
     .insert({
       household_id: householdId || batch.household_id,
+      user_id: context.appUserId ?? null,
       inventory_batch_id: batch.id,
       product_id: productId,
       type: movementType,

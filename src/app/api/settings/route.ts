@@ -1,23 +1,23 @@
 import { NextResponse } from "next/server";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { defaultSettingsProfile } from "@/lib/settings";
 
 export async function GET(req: Request) {
-  const userId = req.headers.get("x-user-id");
-
   try {
     const supabase = createSupabaseServerClient();
+    const context = await resolveAccountContext(req, supabase);
 
-    if (!userId) {
+    if (!context.appUserId) {
       return NextResponse.json({ ok: true, profile: defaultSettingsProfile, warning: "no_user_header" });
     }
 
     // fetch user preferences
-    const { data: prefs, error: prefsErr } = await supabase.from("user_preferences").select("*").eq("user_id", userId).limit(1).maybeSingle();
+    const { data: prefs, error: prefsErr } = await supabase.from("user_preferences").select("*").eq("user_id", context.appUserId).limit(1).maybeSingle();
     // fetch user health profile
-    const { data: health, error: healthErr } = await supabase.from("user_health_profiles").select("*").eq("user_id", userId).limit(1).maybeSingle();
+    const { data: health, error: healthErr } = await supabase.from("user_health_profiles").select("*").eq("user_id", context.appUserId).limit(1).maybeSingle();
     // fetch latest active nutrition goal if exists
-    const { data: goals, error: goalsErr } = await supabase.from("nutrition_goals").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: goals, error: goalsErr } = await supabase.from("nutrition_goals").select("*").eq("user_id", context.appUserId).order("created_at", { ascending: false }).limit(1).maybeSingle();
 
     if (prefsErr || healthErr) {
       // return default but provide warning

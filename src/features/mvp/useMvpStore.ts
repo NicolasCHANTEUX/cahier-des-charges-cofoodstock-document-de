@@ -12,6 +12,8 @@ import type {
 } from "@/types/domain";
 import { mockInventory } from "@/lib/mock-data";
 import { formatQuantity } from "@/lib/units";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { buildAccountStorageKey } from "@/lib/account-storage";
 
 const STORAGE_KEY = "ecofoodstock:mvp-state";
 
@@ -55,9 +57,21 @@ const initialState: MvpState = {
 export function useMvpStore() {
   const [state, setState] = useState<MvpState>(initialState);
   const [loaded, setLoaded] = useState(false);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const supabase = createSupabaseBrowserClient();
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      setStorageKey(buildAccountStorageKey(STORAGE_KEY, data.user?.id ?? null));
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) return;
+
+    const stored = window.localStorage.getItem(storageKey);
 
     if (stored) {
       try {
@@ -68,13 +82,13 @@ export function useMvpStore() {
     }
 
     setLoaded(true);
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
-    if (loaded) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (loaded && storageKey) {
+      window.localStorage.setItem(storageKey, JSON.stringify(state));
     }
-  }, [loaded, state]);
+  }, [loaded, state, storageKey]);
 
   const groupedActivity = useMemo(
     () => groupActivityEvents(state.activityEvents),
@@ -205,7 +219,9 @@ export function useMvpStore() {
 
   function resetDemoState() {
     setState(initialState);
-    window.localStorage.removeItem(STORAGE_KEY);
+    if (storageKey) {
+      window.localStorage.removeItem(storageKey);
+    }
   }
 
   return {

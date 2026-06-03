@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mockInventory } from "@/lib/mock-data";
 import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
@@ -18,7 +19,7 @@ type InventorySummaryRow = {
   unit: string;
 };
 
-export async function GET() {
+export async function GET(req: Request) {
   let supabase;
 
   try {
@@ -27,11 +28,32 @@ export async function GET() {
     return NextResponse.json({ ok: true, inventory: mockInventory });
   }
 
-  const { data, error } = await supabase
+  const context = await resolveAccountContext(req, supabase);
+  let householdId = context.householdId;
+
+  if (context.authenticated) {
+    try {
+      householdId = await ensureUserHousehold(supabase, context);
+    } catch (error) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+
+    if (!householdId) {
+      return NextResponse.json({ ok: true, inventory: [] });
+    }
+  }
+
+  let query = supabase
     .from("active_inventory_summary")
     .select("household_id, product_id, name, brand, category, image_url, storage_area, nearest_expiration_date, total_quantity_remaining, unit")
     .order("nearest_expiration_date", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
+
+  if (householdId) {
+    query = query.eq("household_id", householdId);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) {
     return NextResponse.json({ ok: true, inventory: mockInventory, warning: error?.message ?? "inventory_view_fallback" });
