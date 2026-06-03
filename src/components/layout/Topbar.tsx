@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Bell, UserRound } from "lucide-react";
 import { defaultSettingsProfile } from "@/lib/settings";
+import { getBrowserAccountStatus } from "@/lib/supabase/browser-account";
 
 export function Topbar() {
   const [modeLabel, setModeLabel] = useState<string | null>(null);
+  const [accountLabel, setAccountLabel] = useState("Mon compte");
 
   useEffect(() => {
     try {
@@ -22,12 +24,34 @@ export function Topbar() {
     setModeLabel(null);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    getBrowserAccountStatus()
+      .then((status) => {
+        if (!active) {
+          return;
+        }
+
+        setAccountLabel(formatAccountLabel(status.displayName, status.email));
+      })
+      .catch(() => {
+        if (active) {
+          setAccountLabel("Mon compte");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div>
-          <p className="text-sm text-slate-500">Foyer</p>
-          <h1 className="font-semibold">Alex&apos;s Pantry</h1>
+          <p className="text-sm text-slate-500">Compte</p>
+          <h1 className="font-semibold">{accountLabel}</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm sm:inline-flex">
@@ -44,5 +68,15 @@ export function Topbar() {
       </div>
     </header>
   );
+}
+
+function formatAccountLabel(displayName?: string | null, email?: string | null) {
+  const cleanDisplayName = displayName?.trim();
+
+  if (cleanDisplayName) {
+    return cleanDisplayName;
+  }
+
+  return email?.trim() || "Mon compte";
 }
 

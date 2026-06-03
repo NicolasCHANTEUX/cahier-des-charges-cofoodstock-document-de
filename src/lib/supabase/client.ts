@@ -1,4 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+let browserClient: SupabaseClient | null = null;
 
 export function createSupabaseBrowserClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,6 +10,10 @@ export function createSupabaseBrowserClient() {
     throw new Error("Variables Supabase manquantes");
   }
 
-  return createClient(url, anonKey);
+  if (!browserClient) {
+    browserClient = createClient(url, anonKey);
+  }
+
+  return browserClient;
 }
 

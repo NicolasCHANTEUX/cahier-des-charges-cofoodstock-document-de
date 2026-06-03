@@ -1,42 +1,61 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getBrowserAccountStatus } from "@/lib/supabase/browser-account";
+import { clearBrowserAccountStatusCache, getBrowserAccountStatus } from "@/lib/supabase/browser-account";
 import { routes } from "@/lib/routes";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [authorized, setAuthorized] = useState(false);
+  const checkedAccessTokenRef = useRef<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     let active = true;
     const loginUrl = () => `${routes.login}?next=${encodeURIComponent(getCurrentPath())}`;
 
-    async function handleSession(session: unknown) {
+    async function handleSession(session: Session | null, options: { force?: boolean } = {}) {
       if (!active) {
         return;
       }
 
       if (!session) {
+        checkedAccessTokenRef.current = null;
+        clearBrowserAccountStatusCache();
         setAuthorized(false);
         router.replace(loginUrl());
         return;
       }
 
-      const status = await getBrowserAccountStatus();
+      if (!options.force && checkedAccessTokenRef.current === session.access_token) {
+        setAuthorized(true);
+        return;
+      }
+
+      const status = await getBrowserAccountStatus({ force: options.force });
 
       if (!active) {
         return;
       }
 
+      if (!status.authenticated) {
+        checkedAccessTokenRef.current = null;
+        clearBrowserAccountStatusCache();
+        setAuthorized(false);
+        router.replace(loginUrl());
+        return;
+      }
+
       if (!status.onboardingCompleted && window.location.pathname !== routes.onboarding) {
+        checkedAccessTokenRef.current = session.access_token;
         setAuthorized(false);
         router.replace(routes.onboarding);
         return;
       }
 
+      checkedAccessTokenRef.current = session.access_token;
       setAuthorized(true);
     }
 
@@ -49,8 +68,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
       const {
         data: { subscription }
-      } = supabase.auth.onAuthStateChange((_event, session) => {
-        void handleSession(session);
+      } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+          checkedAccessTokenRef.current = null;
+          clearBrowserAccountStatusCache();
+          setAuthorized(false);
+          router.replace(loginUrl());
+          return;
+        }
+
+        if (event === "TOKEN_REFRESHED") {
+          checkedAccessTokenRef.current = null;
+          void handleSession(session, { force: true });
+          return;
+        }
+
+        if (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "USER_UPDATED") {
+          void handleSession(session);
+        }
       });
 
       return () => {

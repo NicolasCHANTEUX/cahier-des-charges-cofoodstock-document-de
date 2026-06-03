@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       const { data: household } = await supabase
         .from("households")
         .insert({
-          name: full_name ? `${full_name.split(" ")[0]}'s Pantry` : "Mon foyer",
+          name: "Mon foyer",
           created_by: appUser.id
         })
         .select("id")

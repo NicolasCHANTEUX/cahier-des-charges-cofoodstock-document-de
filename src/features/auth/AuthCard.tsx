@@ -10,6 +10,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 
 export function AuthCard() {
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
@@ -92,6 +93,12 @@ export function AuthCard() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    if (isSignUp && !fullName.trim()) {
+      setErrorMessage("Nom et prenom requis.");
+      setLoading(false);
+      return;
+    }
+
     if (!email || !password) {
       setErrorMessage("Email et mot de passe requis.");
       setLoading(false);
@@ -105,7 +112,7 @@ export function AuthCard() {
         const res = await fetch("/api/auth/signup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, inviteToken })
+          body: JSON.stringify({ email, password, inviteToken, full_name: fullName.trim() })
         });
 
         if (!res.ok) {
@@ -179,6 +186,15 @@ export function AuthCard() {
             <div role="status" aria-live="polite" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
               {successMessage}
             </div>
+          ) : null}
+          {isSignUp ? (
+            <input
+              className="h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500"
+              placeholder="Nom et prenom"
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
           ) : null}
           <input
             className="h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500"

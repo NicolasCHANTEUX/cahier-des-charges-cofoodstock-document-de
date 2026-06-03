@@ -35,6 +35,10 @@ Repousse :
 
 ## Lancement local
 
+Prerequis :
+
+- Node.js 20 ou plus.
+
 ```bash
 npm install
 npm run dev

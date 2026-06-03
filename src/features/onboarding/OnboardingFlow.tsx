@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
+import { clearBrowserAccountStatusCache } from "@/lib/supabase/browser-account";
 import { buildAccountStorageKey } from "@/lib/account-storage";
 import { defaultSettingsProfile, getGoalDefaultAdjustment, type DietType, type SettingsProfile } from "@/lib/settings";
 import { t } from "@/lib/i18n";
@@ -169,6 +170,7 @@ export function OnboardingFlow() {
       window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(nextState));
       window.localStorage.setItem("ecofoodstock:onboarding-completed", "true");
       window.localStorage.removeItem(STORAGE_KEY);
+      clearBrowserAccountStatusCache();
       router.push("/dashboard");
     } catch (error) {
       setFinishError((error as Error).message ?? "Impossible de finaliser l'onboarding.");

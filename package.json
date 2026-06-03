@@ -2,9 +2,15 @@
   "name": "ecofoodstock",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
+    "predev": "node scripts/check-node-version.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/check-node-version.mjs",
     "build": "next build",
+    "prestart": "node scripts/check-node-version.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"

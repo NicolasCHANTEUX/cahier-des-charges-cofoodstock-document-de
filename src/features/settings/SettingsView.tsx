@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, LogOut, RotateCcw, Settings, Target, UsersRound } from "lucide-react";
+import { ChevronDown, ChevronUp, LogOut, RotateCcw, Settings, Target, Trash2, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { clearBrowserAccountStatusCache } from "@/lib/supabase/browser-account";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import { buildAccountStorageKey } from "@/lib/account-storage";
 import { routes } from "@/lib/routes";
 import { buildSettingsChangeSummary, calculateBmi, calculateBmr, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
@@ -26,6 +28,8 @@ export function SettingsView() {
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountActionStatus, setAccountActionStatus] = useState<string | null>(null);
   const baselineRef = useRef<SettingsProfile>(defaultSettingsProfile);
 
   useEffect(() => {
@@ -209,6 +213,7 @@ export function SettingsView() {
         throw error;
       }
 
+      clearBrowserAccountStatusCache();
       router.replace(routes.login);
     } catch {
       setStatus("Impossible de vous deconnecter pour le moment.");
@@ -229,6 +234,7 @@ export function SettingsView() {
 
       clearEcoFoodStockStorage(window.localStorage);
       clearEcoFoodStockStorage(window.sessionStorage);
+      clearBrowserAccountStatusCache();
       setInviteToken(null);
       setInviteExpiresAt(null);
       setStatus("Cache local vide. Rechargez la page pour repartir sur un etat propre.");
@@ -236,6 +242,63 @@ export function SettingsView() {
       setStatus("Impossible de vider tout le cache local pour le moment.");
     } finally {
       setClearingCache(false);
+    }
+  }
+
+  async function deleteAccount() {
+    const confirmed = window.confirm(
+      "Cette action supprimera definitivement votre compte EcoFoodStock. Si vous etes le seul membre du foyer, les donnees du foyer seront aussi supprimees. Continuer ?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const typedConfirmation = window.prompt("Tapez SUPPRIMER pour confirmer la suppression definitive du compte.");
+
+    if (typedConfirmation !== "SUPPRIMER") {
+      setAccountActionStatus("Suppression annulee.");
+      return;
+    }
+
+    setDeletingAccount(true);
+    setAccountActionStatus(null);
+
+    try {
+      const headers = await getBrowserAuthHeaders();
+
+      if (!headers.Authorization) {
+        router.replace(routes.login);
+        return;
+      }
+
+      const response = await fetch("/api/account/delete", {
+        method: "DELETE",
+        headers
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.message ?? payload?.error ?? "Impossible de supprimer le compte pour le moment.");
+      }
+
+      try {
+        const supabase = createSupabaseBrowserClient();
+        await supabase.auth.signOut();
+      } catch {
+        // The auth user may already be deleted server-side.
+      }
+
+      clearEcoFoodStockStorage(window.localStorage);
+      clearEcoFoodStockStorage(window.sessionStorage);
+      await clearCacheStorage();
+      clearBrowserAccountStatusCache();
+      router.replace(routes.login);
+    } catch (error) {
+      setAccountActionStatus((error as Error).message ?? "Impossible de supprimer le compte pour le moment.");
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -540,6 +603,33 @@ export function SettingsView() {
             </p>
             <Button type="button" onClick={() => void saveSettings()} disabled={saving}>
               {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="mb-5 flex items-center gap-3">
+            <Trash2 className="h-5 w-5 text-rose-600" />
+            <h2 className="text-xl font-bold">Legal & securite</h2>
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-lg border border-rose-100 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-rose-950">Supprimer mon compte definitivement</p>
+              <p className="mt-1 text-sm text-rose-800">
+                Cette action supprime votre compte, vos donnees personnelles et votre foyer si vous en etes le seul membre.
+              </p>
+              {accountActionStatus ? <p className="mt-2 text-sm font-medium text-rose-800">{accountActionStatus}</p> : null}
+            </div>
+            <Button
+              variant="danger"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void deleteAccount()}
+              disabled={deletingAccount || signingOut || clearingCache}
+            >
+              <Trash2 className="h-4 w-4" />
+              {deletingAccount ? "Suppression..." : "Supprimer mon compte"}
             </Button>
           </div>
         </Card>

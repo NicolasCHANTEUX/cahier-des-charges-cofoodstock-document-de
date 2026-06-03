@@ -5,6 +5,8 @@ export type AccountContext = {
   authUserId?: string;
   appUserId?: string;
   householdId?: string;
+  email?: string;
+  displayName?: string | null;
   onboardingCompleted?: boolean;
 };
 
@@ -24,21 +26,21 @@ export async function resolveAccountContext(request: Request, supabase: Supabase
   }
 
   const authUserEmail = userData.user?.email ?? `${authUserId}@missing.local`;
+  const metadata = userData.user?.user_metadata as { full_name?: string; name?: string } | undefined;
+  const metadataDisplayName = metadata?.full_name ?? metadata?.name ?? null;
 
   const { data: existingUser } = await supabase
     .from("users")
-    .select("id, onboarding_completed")
+    .select("id, email, display_name, onboarding_completed")
     .eq("auth_user_id", authUserId)
-    .maybeSingle<{ id: string; onboarding_completed: boolean }>();
+    .maybeSingle<{ id: string; email: string | null; display_name: string | null; onboarding_completed: boolean }>();
 
   let appUserId = existingUser?.id;
+  let email = existingUser?.email ?? authUserEmail;
+  let displayName = existingUser?.display_name ?? metadataDisplayName;
   let onboardingCompleted = existingUser?.onboarding_completed ?? false;
 
   if (!appUserId) {
-    const displayName = (userData.user?.user_metadata as { full_name?: string; name?: string } | undefined)?.full_name
-      ?? (userData.user?.user_metadata as { full_name?: string; name?: string } | undefined)?.name
-      ?? null;
-
     const { data: createdUser } = await supabase
       .from("users")
       .insert({
@@ -46,15 +48,20 @@ export async function resolveAccountContext(request: Request, supabase: Supabase
         email: authUserEmail,
         display_name: displayName
       })
-      .select("id, onboarding_completed")
-      .maybeSingle<{ id: string; onboarding_completed: boolean }>();
+      .select("id, email, display_name, onboarding_completed")
+      .maybeSingle<{ id: string; email: string | null; display_name: string | null; onboarding_completed: boolean }>();
 
     appUserId = createdUser?.id;
+    email = createdUser?.email ?? authUserEmail;
+    displayName = createdUser?.display_name ?? displayName;
     onboardingCompleted = createdUser?.onboarding_completed ?? false;
+  } else if (!existingUser?.display_name && metadataDisplayName) {
+    await supabase.from("users").update({ display_name: metadataDisplayName }).eq("id", appUserId);
+    displayName = metadataDisplayName;
   }
 
   if (!appUserId) {
-    return { authenticated: true, authUserId };
+    return { authenticated: true, authUserId, email, displayName };
   }
 
   const { data: membership } = await supabase
@@ -70,6 +77,8 @@ export async function resolveAccountContext(request: Request, supabase: Supabase
     authUserId,
     appUserId,
     householdId: membership?.household_id ?? undefined,
+    email,
+    displayName,
     onboardingCompleted
   };
 }
