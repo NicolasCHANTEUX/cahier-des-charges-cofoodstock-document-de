@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { canUseDemoMode, ensureUserHousehold, isProductionEnvironment, resolveAccountContext } from "@/lib/supabase/account-context";
+import {
+  canUseDemoMode,
+  ensureUserHousehold,
+  isProductionEnvironment,
+  resolveAccountContext,
+  userBelongsToHousehold
+} from "@/lib/supabase/account-context";
 import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mockInventory } from "@/lib/mock-data";
@@ -44,6 +50,12 @@ export async function GET(req: Request) {
 
     if (!householdId) {
       return NextResponse.json({ ok: true, inventory: [] });
+    }
+
+    const belongsToHousehold = await userBelongsToHousehold(supabase, context.appUserId, householdId);
+
+    if (!belongsToHousehold) {
+      return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
     }
   } else if (isProductionEnvironment()) {
     return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });

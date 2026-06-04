@@ -32,10 +32,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
     }
 
-    if (!canUseDemoMode()) {
-      return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-    }
-
     const demoHouseholdId = await ensureDemoHousehold(supabase).catch(() => null);
     const payload = await createDashboardPayload(demoHouseholdId);
     return NextResponse.json(payload);
