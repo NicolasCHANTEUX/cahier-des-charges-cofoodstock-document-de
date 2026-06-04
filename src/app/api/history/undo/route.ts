@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
   const eventId = String(payload.eventId);
 
-  let supabase;
+  let supabase: ReturnType<typeof createSupabaseServerClient>;
   try {
     supabase = createSupabaseServerClient();
   } catch {
@@ -86,6 +86,43 @@ export async function POST(req: Request) {
   const insertedUndoMovementIds: string[] = [];
   const createdBatchIds: string[] = [];
   const updatedBatchStates: Array<{ batchId: string; quantityRemaining: number; status: string | null }> = [];
+  async function rollbackUndoChanges() {
+    const rollbackErrors: string[] = [];
+
+    if (insertedUndoMovementIds.length > 0) {
+      const { error: rollbackMovementsErr } = await supabase.from("inventory_movements").delete().in("id", insertedUndoMovementIds);
+      if (rollbackMovementsErr) {
+        rollbackErrors.push(`inventory_movements rollback failed: ${rollbackMovementsErr.message}`);
+      }
+    }
+
+    for (const previousState of updatedBatchStates) {
+      const { error: rollbackBatchErr } = await supabase
+        .from("inventory_batches")
+        .update({
+          quantity_remaining: previousState.quantityRemaining,
+          status: previousState.status
+        })
+        .eq("id", previousState.batchId);
+      if (rollbackBatchErr) {
+        rollbackErrors.push(`inventory_batches rollback failed for ${previousState.batchId}: ${rollbackBatchErr.message}`);
+      }
+    }
+
+    if (createdBatchIds.length > 0) {
+      const { error: rollbackCreatedBatchesErr } = await supabase.from("inventory_batches").delete().in("id", createdBatchIds);
+      if (rollbackCreatedBatchesErr) {
+        rollbackErrors.push(`created inventory_batches cleanup failed: ${rollbackCreatedBatchesErr.message}`);
+      }
+    }
+
+    const { error: rollbackUndoEventErr } = await supabase.from("activity_events").delete().eq("id", undoEventId);
+    if (rollbackUndoEventErr) {
+      rollbackErrors.push(`undo event cleanup failed: ${rollbackUndoEventErr.message}`);
+    }
+
+    return rollbackErrors;
+  }
 
   for (const mv of movements ?? []) {
     try {
@@ -184,39 +221,7 @@ export async function POST(req: Request) {
 
   const failedUndoMovements = createdUndoMovements.filter((movement) => !movement.ok);
   if (failedUndoMovements.length > 0) {
-    const rollbackErrors: string[] = [];
-
-    if (insertedUndoMovementIds.length > 0) {
-      const { error: rollbackMovementsErr } = await supabase.from("inventory_movements").delete().in("id", insertedUndoMovementIds);
-      if (rollbackMovementsErr) {
-        rollbackErrors.push(`inventory_movements rollback failed: ${rollbackMovementsErr.message}`);
-      }
-    }
-
-    for (const previousState of updatedBatchStates) {
-      const { error: rollbackBatchErr } = await supabase
-        .from("inventory_batches")
-        .update({
-          quantity_remaining: previousState.quantityRemaining,
-          status: previousState.status
-        })
-        .eq("id", previousState.batchId);
-      if (rollbackBatchErr) {
-        rollbackErrors.push(`inventory_batches rollback failed for ${previousState.batchId}: ${rollbackBatchErr.message}`);
-      }
-    }
-
-    if (createdBatchIds.length > 0) {
-      const { error: rollbackCreatedBatchesErr } = await supabase.from("inventory_batches").delete().in("id", createdBatchIds);
-      if (rollbackCreatedBatchesErr) {
-        rollbackErrors.push(`created inventory_batches cleanup failed: ${rollbackCreatedBatchesErr.message}`);
-      }
-    }
-
-    const { error: rollbackUndoEventErr } = await supabase.from("activity_events").delete().eq("id", undoEventId);
-    if (rollbackUndoEventErr) {
-      rollbackErrors.push(`undo event cleanup failed: ${rollbackUndoEventErr.message}`);
-    }
+    const rollbackErrors = await rollbackUndoChanges();
 
     return NextResponse.json(
       {
@@ -232,7 +237,16 @@ export async function POST(req: Request) {
   // mark original activity as undone
   const { error: markUndoneErr } = await supabase.from("activity_events").update({ undone_at: new Date().toISOString(), can_undo: false }).eq("id", eventId);
   if (markUndoneErr) {
-    return NextResponse.json({ ok: false, message: "Undo created but original event was not updated", error: markUndoneErr.message }, { status: 500 });
+    const rollbackErrors = await rollbackUndoChanges();
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "Undo failed, no changes were finalized",
+        error: markUndoneErr.message,
+        rollbackErrors
+      },
+      { status: 500 }
+    );
   }
 
   const restoredSettingsProfile = isSettingsUndo && typeof metadata.previous_profile === "object"

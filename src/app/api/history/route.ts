@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     supabase = createSupabaseServerClient();
   } catch {
     if (isProd) {
-      return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+      return NextResponse.json({ ok: false, message: "Unable to load history" }, { status: 500 });
     }
     return NextResponse.json({ ok: true, events: [] });
   }
@@ -44,6 +44,9 @@ export async function GET(req: Request) {
   }
 
   if (!householdId) {
+    if (isProd) {
+      return NextResponse.json({ ok: false, message: "Unable to load history" }, { status: 500 });
+    }
     return NextResponse.json({ ok: true, events: [] });
   }
 

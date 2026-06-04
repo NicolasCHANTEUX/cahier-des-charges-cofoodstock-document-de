@@ -90,10 +90,10 @@ npm run build
 Checklist manuelle :
 
 - inscription ;
-- connexion ;
+- connexion (email + Google) ;
 - onboarding ;
 - ajout manuel ;
-- recherche Open Food Facts ;
+- recherche Open Food Facts (code-barres) ;
 - scan camera ;
 - ajout au stock ;
 - reduction / consommation / jet ;
@@ -101,7 +101,7 @@ Checklist manuelle :
 - annulation ;
 - liste de courses ;
 - finalisation des courses ;
-- navigation mobile.
+- affichage mobile des modales.
 
 
 ## Documents de cadrage
