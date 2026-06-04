@@ -17,17 +17,21 @@ type ActivityEventRow = {
 
 export async function GET(req: Request) {
   let supabase;
+  const isProd = isProductionEnvironment();
 
   try {
     supabase = createSupabaseServerClient();
   } catch {
-    return NextResponse.json({ ok: true, groups: [] });
+    if (isProd) {
+      return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, events: [] });
   }
 
   const context = await resolveAccountContext(req, supabase);
   let householdId = context.householdId;
 
-  if (!context.authenticated && isProductionEnvironment()) {
+  if (!context.authenticated && isProd) {
     return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
   }
 
@@ -50,7 +54,10 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false });
 
   if (error || !data) {
-    return NextResponse.json({ ok: true, groups: [], warning: error?.message ?? "history_fallback" });
+    if (isProd) {
+      return NextResponse.json({ ok: false, message: "Unable to load history", error: error?.message ?? "history_query_failed" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, events: [], warning: error?.message ?? "history_fallback" });
   }
 
   const events = (data as ActivityEventRow[]).map(mapActivityEventRow);

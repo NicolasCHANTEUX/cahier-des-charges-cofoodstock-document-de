@@ -65,6 +65,7 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
+  const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     return () => stopCamera();
@@ -144,61 +145,79 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
       return;
     }
 
-    const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (target: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
-
-    if (!BarcodeDetectorCtor) {
-      setScanError("Le scan caméra n'est pas disponible sur ce navigateur. Utilise la saisie manuelle.");
-      return;
-    }
-
     if (!navigator.mediaDevices?.getUserMedia) {
       setScanError("La caméra n'est pas accessible sur cet appareil.");
       return;
     }
 
+    const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (target: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
     stopCamera();
+    setIsScanning(true);
+    let videoElement: HTMLVideoElement | null = null;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (videoRef.current) {
+        videoElement = videoRef.current;
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+
+    if (!videoElement) {
+      setScanError("Impossible d'initialiser l'aperçu caméra.");
+      stopCamera();
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } }
       });
-
       streamRef.current = stream;
-      setIsScanning(true);
+      videoElement.srcObject = stream;
+      await videoElement.play();
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-
-      const detector = new BarcodeDetectorCtor({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] });
-
-      const tick = async () => {
-        if (!videoRef.current || !streamRef.current) {
-          return;
-        }
-
-        try {
-          const barcodes = await detector.detect(videoRef.current);
-          const detectedCode = barcodes.find((entry) => Boolean(entry.rawValue))?.rawValue?.trim();
-
-          if (detectedCode) {
-            stopCamera();
-            setBarcode(detectedCode);
-            await lookupProduct(detectedCode);
+      if (BarcodeDetectorCtor) {
+        const detector = new BarcodeDetectorCtor({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] });
+        const tick = async () => {
+          if (!videoRef.current || !streamRef.current) {
             return;
           }
-        } catch {
-          // keep scanning
-        }
+
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            const detectedCode = barcodes.find((entry) => Boolean(entry.rawValue))?.rawValue?.trim();
+
+            if (detectedCode) {
+              stopCamera();
+              setBarcode(detectedCode);
+              await lookupProduct(detectedCode);
+              return;
+            }
+          } catch {
+            // keep scanning
+          }
+
+          frameRef.current = window.requestAnimationFrame(() => {
+            void tick();
+          });
+        };
 
         frameRef.current = window.requestAnimationFrame(() => {
           void tick();
         });
-      };
+        return;
+      }
 
-      frameRef.current = window.requestAnimationFrame(() => {
-        void tick();
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatReader();
+      zxingControlsRef.current = await reader.decodeFromVideoElement(videoElement, (result) => {
+        const detectedCode = result?.getText()?.trim();
+        if (!detectedCode) {
+          return;
+        }
+        stopCamera();
+        setBarcode(detectedCode);
+        void lookupProduct(detectedCode);
       });
     } catch {
       stopCamera();
@@ -215,6 +234,11 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+
+    if (zxingControlsRef.current) {
+      zxingControlsRef.current.stop();
+      zxingControlsRef.current = null;
     }
 
     if (videoRef.current) {
