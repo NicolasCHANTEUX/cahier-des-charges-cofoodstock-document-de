@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
   const eventId = String(payload.eventId);
 
-  let supabase;
+  let supabase: ReturnType<typeof createSupabaseServerClient>;
   try {
     supabase = createSupabaseServerClient();
   } catch {
