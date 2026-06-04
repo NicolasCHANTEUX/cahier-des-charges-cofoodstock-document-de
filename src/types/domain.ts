@@ -61,6 +61,8 @@ export type ActivityType =
   | "product_consumed"
   | "product_wasted"
   | "product_adjusted"
+  | "recipe_cooked"
+  | "shopping_finished"
   | "undo";
 
 export type ActivityEvent = {
