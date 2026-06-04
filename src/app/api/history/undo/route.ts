@@ -83,6 +83,9 @@ export async function POST(req: Request) {
     undoMovement?: string;
     error?: string;
   }> = [];
+  const insertedUndoMovementIds: string[] = [];
+  const createdBatchIds: string[] = [];
+  const updatedBatchStates: Array<{ batchId: string; quantityRemaining: number; status: string | null }> = [];
 
   for (const mv of movements ?? []) {
     try {
@@ -95,7 +98,11 @@ export async function POST(req: Request) {
       let effectiveBatchId = null;
       if (batchId) {
         // fetch current batch
-        const { data: batchRow } = await supabase.from("inventory_batches").select("id, quantity_remaining, status").eq("id", batchId).maybeSingle();
+        const { data: batchRow, error: batchErr } = await supabase.from("inventory_batches").select("id, quantity_remaining, status").eq("id", batchId).maybeSingle();
+        if (batchErr) {
+          createdUndoMovements.push({ ok: false, movementId: mv.id, error: batchErr.message });
+          continue;
+        }
         if (batchRow) {
           const currentQty = Number(batchRow.quantity_remaining ?? 0);
           const newQty = Math.max(0, currentQty + inverse);
@@ -105,7 +112,16 @@ export async function POST(req: Request) {
           } else if (newQty <= 0 && batchRow.status !== "removed") {
             updatePayload.status = "removed";
           }
-          await supabase.from("inventory_batches").update(updatePayload).eq("id", batchId);
+          const { error: updateErr } = await supabase.from("inventory_batches").update(updatePayload).eq("id", batchId);
+          if (updateErr) {
+            createdUndoMovements.push({ ok: false, movementId: mv.id, error: updateErr.message });
+            continue;
+          }
+          updatedBatchStates.push({
+            batchId: String(batchId),
+            quantityRemaining: currentQty,
+            status: batchRow.status ?? null
+          });
           effectiveBatchId = batchRow.id;
         }
       }
@@ -131,6 +147,7 @@ export async function POST(req: Request) {
             // log error but continue
             createdUndoMovements.push({ ok: false, movementId: mv.id, error: createBatchErr.message });
           } else if (createdBatch && createdBatch.id) {
+            createdBatchIds.push(createdBatch.id);
             effectiveBatchId = createdBatch.id;
           }
         }
@@ -155,6 +172,9 @@ export async function POST(req: Request) {
         // continue but record error
         createdUndoMovements.push({ ok: false, movementId: mv.id, error: insertMvErr.message });
       } else {
+        if (insertedMv?.id) {
+          insertedUndoMovementIds.push(insertedMv.id);
+        }
         createdUndoMovements.push({ ok: true, originalMovement: mv.id, undoMovement: insertedMv?.id });
       }
     } catch (e) {
@@ -162,8 +182,58 @@ export async function POST(req: Request) {
     }
   }
 
+  const failedUndoMovements = createdUndoMovements.filter((movement) => !movement.ok);
+  if (failedUndoMovements.length > 0) {
+    const rollbackErrors: string[] = [];
+
+    if (insertedUndoMovementIds.length > 0) {
+      const { error: rollbackMovementsErr } = await supabase.from("inventory_movements").delete().in("id", insertedUndoMovementIds);
+      if (rollbackMovementsErr) {
+        rollbackErrors.push(`inventory_movements rollback failed: ${rollbackMovementsErr.message}`);
+      }
+    }
+
+    for (const previousState of updatedBatchStates) {
+      const { error: rollbackBatchErr } = await supabase
+        .from("inventory_batches")
+        .update({
+          quantity_remaining: previousState.quantityRemaining,
+          status: previousState.status
+        })
+        .eq("id", previousState.batchId);
+      if (rollbackBatchErr) {
+        rollbackErrors.push(`inventory_batches rollback failed for ${previousState.batchId}: ${rollbackBatchErr.message}`);
+      }
+    }
+
+    if (createdBatchIds.length > 0) {
+      const { error: rollbackCreatedBatchesErr } = await supabase.from("inventory_batches").delete().in("id", createdBatchIds);
+      if (rollbackCreatedBatchesErr) {
+        rollbackErrors.push(`created inventory_batches cleanup failed: ${rollbackCreatedBatchesErr.message}`);
+      }
+    }
+
+    const { error: rollbackUndoEventErr } = await supabase.from("activity_events").delete().eq("id", undoEventId);
+    if (rollbackUndoEventErr) {
+      rollbackErrors.push(`undo event cleanup failed: ${rollbackUndoEventErr.message}`);
+    }
+
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "Undo failed, no changes were finalized",
+        movementErrors: failedUndoMovements,
+        rollbackErrors
+      },
+      { status: 500 }
+    );
+  }
+
   // mark original activity as undone
-  await supabase.from("activity_events").update({ undone_at: new Date().toISOString(), can_undo: false }).eq("id", eventId);
+  const { error: markUndoneErr } = await supabase.from("activity_events").update({ undone_at: new Date().toISOString(), can_undo: false }).eq("id", eventId);
+  if (markUndoneErr) {
+    return NextResponse.json({ ok: false, message: "Undo created but original event was not updated", error: markUndoneErr.message }, { status: 500 });
+  }
 
   const restoredSettingsProfile = isSettingsUndo && typeof metadata.previous_profile === "object"
     ? (metadata.previous_profile as Record<string, unknown>)

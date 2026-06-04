@@ -25,6 +25,12 @@ Inclus :
 - historique ;
 - parametres de base.
 
+Note MVP 1 courses -> inventaire :
+
+- la finalisation des courses archive la liste et cree un evenement d'activite ;
+- le transfert automatique des articles coches vers `inventory_batches` n'est pas active dans ce MVP ;
+- apres les courses, ajouter les produits au stock via l'écran inventaire (scan code-barres ou saisie manuelle).
+
 Repousse :
 
 - recettes ;
@@ -71,6 +77,32 @@ OAuth setup:
 - Add the redirect URIs used by your app (e.g. `http://localhost:3000` for local dev and `https://your-domain.com` for production).
 - Ensure the Supabase project's authentication settings allow the selected providers.
 
+## Validation MVP 1
+
+Checks techniques :
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
+
+Checklist manuelle :
+
+- inscription ;
+- connexion ;
+- onboarding ;
+- ajout manuel ;
+- recherche Open Food Facts ;
+- scan camera ;
+- ajout au stock ;
+- reduction / consommation / jet ;
+- historique ;
+- annulation ;
+- liste de courses ;
+- finalisation des courses ;
+- navigation mobile.
+
 
 ## Documents de cadrage
 
@@ -78,4 +110,3 @@ OAuth setup:
 - `cadrage-mvp-ecofoodstock.md`
 - `revue-captures-ecrans-ecofoodstock.md`
 - `schema-bdd-ecofoodstock.sql`
-
