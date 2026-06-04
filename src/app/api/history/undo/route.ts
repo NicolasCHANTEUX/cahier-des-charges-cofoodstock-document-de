@@ -184,27 +184,46 @@ export async function POST(req: Request) {
 
   const failedUndoMovements = createdUndoMovements.filter((movement) => !movement.ok);
   if (failedUndoMovements.length > 0) {
+    const rollbackErrors: string[] = [];
+
     if (insertedUndoMovementIds.length > 0) {
-      await supabase.from("inventory_movements").delete().in("id", insertedUndoMovementIds);
+      const { error: rollbackMovementsErr } = await supabase.from("inventory_movements").delete().in("id", insertedUndoMovementIds);
+      if (rollbackMovementsErr) {
+        rollbackErrors.push(`inventory_movements rollback failed: ${rollbackMovementsErr.message}`);
+      }
     }
+
     for (const previousState of updatedBatchStates) {
-      await supabase
+      const { error: rollbackBatchErr } = await supabase
         .from("inventory_batches")
         .update({
           quantity_remaining: previousState.quantityRemaining,
           status: previousState.status
         })
         .eq("id", previousState.batchId);
+      if (rollbackBatchErr) {
+        rollbackErrors.push(`inventory_batches rollback failed for ${previousState.batchId}: ${rollbackBatchErr.message}`);
+      }
     }
+
     if (createdBatchIds.length > 0) {
-      await supabase.from("inventory_batches").delete().in("id", createdBatchIds);
+      const { error: rollbackCreatedBatchesErr } = await supabase.from("inventory_batches").delete().in("id", createdBatchIds);
+      if (rollbackCreatedBatchesErr) {
+        rollbackErrors.push(`created inventory_batches cleanup failed: ${rollbackCreatedBatchesErr.message}`);
+      }
     }
-    await supabase.from("activity_events").delete().eq("id", undoEventId);
+
+    const { error: rollbackUndoEventErr } = await supabase.from("activity_events").delete().eq("id", undoEventId);
+    if (rollbackUndoEventErr) {
+      rollbackErrors.push(`undo event cleanup failed: ${rollbackUndoEventErr.message}`);
+    }
+
     return NextResponse.json(
       {
         ok: false,
         message: "Undo failed, no changes were finalized",
-        movementErrors: failedUndoMovements
+        movementErrors: failedUndoMovements,
+        rollbackErrors
       },
       { status: 500 }
     );

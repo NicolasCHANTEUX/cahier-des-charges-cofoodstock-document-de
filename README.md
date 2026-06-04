@@ -29,7 +29,7 @@ Note MVP 1 courses -> inventaire :
 
 - la finalisation des courses archive la liste et cree un evenement d'activite ;
 - le transfert automatique des articles coches vers `inventory_batches` n'est pas active dans ce MVP ;
-- apres les courses, ajouter les produits au stock via l'ecran inventaire (scan code-barres ou saisie manuelle).
+- apres les courses, ajouter les produits au stock via l'écran inventaire (scan code-barres ou saisie manuelle).
 
 Repousse :
 

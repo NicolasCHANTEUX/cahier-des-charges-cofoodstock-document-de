@@ -48,6 +48,8 @@ const storageOptions: { label: string; value: StorageArea }[] = [
   { label: "Sec", value: "dry" },
   { label: "Autre", value: "other" }
 ];
+const MAX_VIDEO_INIT_ATTEMPTS = 20;
+const VIDEO_INIT_RETRY_DELAY_MS = 50;
 
 export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProductDialogProps) {
   const [barcode, setBarcode] = useState("");
@@ -154,12 +156,12 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
     stopCamera();
     setIsScanning(true);
     let videoElement: HTMLVideoElement | null = null;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < MAX_VIDEO_INIT_ATTEMPTS; attempt += 1) {
       if (videoRef.current) {
         videoElement = videoRef.current;
         break;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      await new Promise((resolve) => window.setTimeout(resolve, VIDEO_INIT_RETRY_DELAY_MS));
     }
 
     if (!videoElement) {
