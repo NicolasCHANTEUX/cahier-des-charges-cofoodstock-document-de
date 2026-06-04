@@ -105,7 +105,7 @@ export async function POST(req: Request) {
   };
 
   if (Math.max(nextRemaining, 0) === 0) {
-    updatePayload.status = action === "waste" ? "wasted" : "consumed";
+    updatePayload.status = action === "waste" ? "wasted" : action === "consume" ? "consumed" : "removed";
   }
 
   const { data: updatedBatch, error: updateError } = await supabase

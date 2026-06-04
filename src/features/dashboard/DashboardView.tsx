@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { PageHeader } from "@/components/shared/PageHeader";
 import type { DashboardPayload } from "@/lib/dashboard-data";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import { formatQuantity } from "@/lib/units";
 
 export function DashboardView() {
@@ -22,9 +23,11 @@ export function DashboardView() {
         setLoading(true);
         setError(null);
 
+        const authHeaders = await getBrowserAuthHeaders();
         const response = await fetch("/api/dashboard", {
           signal: controller.signal,
-          cache: "no-store"
+          cache: "no-store",
+          headers: authHeaders
         });
 
         if (!response.ok) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { canUseDemoMode, ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
+import { canUseDemoMode, ensureUserHousehold, isProductionEnvironment, resolveAccountContext } from "@/lib/supabase/account-context";
+import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mockInventory } from "@/lib/mock-data";
 import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
@@ -44,19 +45,29 @@ export async function GET(req: Request) {
     if (!householdId) {
       return NextResponse.json({ ok: true, inventory: [] });
     }
+  } else if (isProductionEnvironment()) {
+    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+  } else if (canUseDemoMode()) {
+    try {
+      householdId = await ensureDemoHousehold(supabase);
+    } catch {
+      householdId = undefined;
+    }
   }
 
-  let query = supabase
+  if (!householdId) {
+    if (canUseDemoMode()) {
+      return NextResponse.json({ ok: true, inventory: mockInventory });
+    }
+    return NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
     .from("active_inventory_summary")
     .select("household_id, product_id, name, brand, category, image_url, storage_area, nearest_expiration_date, total_quantity_remaining, unit")
+    .eq("household_id", householdId)
     .order("nearest_expiration_date", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
-
-  if (householdId) {
-    query = query.eq("household_id", householdId);
-  }
-
-  const { data, error } = await query;
 
   if (error || !data) {
     if (canUseDemoMode()) {
