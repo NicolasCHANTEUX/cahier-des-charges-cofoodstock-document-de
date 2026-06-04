@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canUseDemoMode, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
+import { canUseDemoMode, isProductionEnvironment, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
 import { mapActivityEventRow } from "@/lib/activity-events";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
@@ -25,21 +25,29 @@ export async function GET(req: Request) {
   }
 
   const context = await resolveAccountContext(req, supabase);
+  let householdId = context.householdId;
 
-  if (context.authenticated && !context.householdId) {
+  if (!context.authenticated && isProductionEnvironment()) {
+    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+  }
+
+  if (!householdId && canUseDemoMode()) {
+    try {
+      householdId = await ensureDemoHousehold(supabase);
+    } catch {
+      householdId = undefined;
+    }
+  }
+
+  if (!householdId) {
     return NextResponse.json({ ok: true, events: [] });
   }
 
-  let query = supabase
+  const { data, error } = await supabase
     .from("activity_events")
     .select("id, type, title, description, can_undo, created_at, metadata")
+    .eq("household_id", householdId)
     .order("created_at", { ascending: false });
-
-  if (context.householdId) {
-    query = query.eq("household_id", context.householdId);
-  }
-
-  const { data, error } = await query;
 
   if (error || !data) {
     return NextResponse.json({ ok: true, groups: [], warning: error?.message ?? "history_fallback" });

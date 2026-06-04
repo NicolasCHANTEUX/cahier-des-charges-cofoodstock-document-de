@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
-import { Barcode, Search, X } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Barcode, Camera, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
@@ -57,13 +57,25 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
   const [storageArea, setStorageArea] = useState<StorageArea>("fresh");
   const [expirationDate, setExpirationDate] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ status: "idle" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
 
   if (!open) {
     return null;
   }
 
-  async function lookupProduct() {
-    const cleanBarcode = barcode.trim();
+  async function lookupProduct(barcodeValue?: string) {
+    const cleanBarcode = (barcodeValue ?? barcode).trim();
 
     if (!cleanBarcode) {
       setLookup({ status: "error", message: "Renseigne d'abord un code-barres." });
@@ -99,6 +111,7 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
         };
       };
 
+      setBarcode(cleanBarcode);
       setName(payload.product.name);
       if (payload.product.quantityValue && payload.product.quantityValue > 0) {
         setQuantity(String(payload.product.quantityValue));
@@ -123,52 +136,95 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
     }
   }
 
-  function submitForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function startCameraScan() {
+    setScanError(null);
+    setValidationMessage(null);
 
-    void (async () => {
-      const numericQuantity = Number(quantity.replace(",", "."));
+    if (typeof window === "undefined") {
+      return;
+    }
 
-      if (!name.trim() || !Number.isFinite(numericQuantity) || numericQuantity <= 0) {
-        return;
+    const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (target: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
+
+    if (!BarcodeDetectorCtor) {
+      setScanError("Le scan caméra n'est pas disponible sur ce navigateur. Utilise la saisie manuelle.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError("La caméra n'est pas accessible sur cet appareil.");
+      return;
+    }
+
+    stopCamera();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+
+      streamRef.current = stream;
+      setIsScanning(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
       }
 
-      try {
-        const response = await fetch("/api/inventory/batches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
-          body: JSON.stringify({
-            product: {
-              name,
-              barcode: barcode.trim() || undefined,
-              brand: lookup.status === "found" ? lookup.brand : undefined,
-              category: lookup.status === "found" ? lookup.category : undefined,
-              imageUrl: lookup.status === "found" ? lookup.imageUrl : undefined,
-              source: barcode.trim() ? "open_food_facts" : "manual",
-              default_storage_area: storageArea,
-              default_unit: unit
-            },
-            quantity: numericQuantity,
-            unit,
-            storageArea,
-            expirationDate: expirationDate || null
-          })
-        });
+      const detector = new BarcodeDetectorCtor({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] });
 
-          if (!response.ok) {
-          console.error("Failed to persist batch", await response.text());
-          // Fallback to local add
-          onAdd?.({ name, quantity: numericQuantity, unit, storageArea, expirationDate, barcode: barcode.trim() || undefined });
-        } else {
-          await response.json();
-          onPersisted?.();
+      const tick = async () => {
+        if (!videoRef.current || !streamRef.current) {
+          return;
         }
-      } catch (err) {
-        console.error(err);
-        onAdd?.({ name, quantity: numericQuantity, unit, storageArea, expirationDate, barcode: barcode.trim() || undefined });
-      }
-    })();
 
+        try {
+          const barcodes = await detector.detect(videoRef.current);
+          const detectedCode = barcodes.find((entry) => Boolean(entry.rawValue))?.rawValue?.trim();
+
+          if (detectedCode) {
+            stopCamera();
+            setBarcode(detectedCode);
+            await lookupProduct(detectedCode);
+            return;
+          }
+        } catch {
+          // keep scanning
+        }
+
+        frameRef.current = window.requestAnimationFrame(() => {
+          void tick();
+        });
+      };
+
+      frameRef.current = window.requestAnimationFrame(() => {
+        void tick();
+      });
+    } catch {
+      stopCamera();
+      setScanError("Impossible d'accéder à la caméra. Vérifie les permissions puis réessaie.");
+    }
+  }
+
+  function stopCamera() {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setIsScanning(false);
+  }
+
+  function resetForm() {
     setBarcode("");
     setName("");
     setQuantity("1");
@@ -176,25 +232,110 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
     setStorageArea("fresh");
     setExpirationDate("");
     setLookup({ status: "idle" });
+    setSubmitError(null);
+    setValidationMessage(null);
+    setScanError(null);
+  }
+
+  function closeDialog() {
+    if (isSubmitting) {
+      return;
+    }
+
+    stopCamera();
     onClose();
+  }
+
+  async function submitForm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitError(null);
+    setValidationMessage(null);
+
+    const trimmedName = name.trim();
+    const numericQuantity = Number(quantity.replace(",", "."));
+
+    if (!trimmedName) {
+      setValidationMessage("Le nom du produit est obligatoire.");
+      return;
+    }
+
+    if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) {
+      setValidationMessage("La quantité doit être supérieure à 0.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/inventory/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
+        body: JSON.stringify({
+          product: {
+            name: trimmedName,
+            barcode: barcode.trim() || undefined,
+            brand: lookup.status === "found" ? lookup.brand : undefined,
+            category: lookup.status === "found" ? lookup.category : undefined,
+            imageUrl: lookup.status === "found" ? lookup.imageUrl : undefined,
+            source: barcode.trim() ? "open_food_facts" : "manual",
+            default_storage_area: storageArea,
+            default_unit: unit
+          },
+          quantity: numericQuantity,
+          unit,
+          storageArea,
+          expirationDate: expirationDate || null
+        })
+      });
+
+      if (!response.ok) {
+        const errorMessage = await response.text();
+
+        if (process.env.NODE_ENV !== "production") {
+          onAdd?.({
+            name: trimmedName,
+            quantity: numericQuantity,
+            unit,
+            storageArea,
+            expirationDate,
+            barcode: barcode.trim() || undefined
+          });
+          onClose();
+          resetForm();
+          return;
+        }
+
+        throw new Error(errorMessage || "save_failed");
+      }
+
+      await response.json();
+      onPersisted?.();
+      resetForm();
+      onClose();
+    } catch {
+      setSubmitError("Impossible d'ajouter le produit. Vérifie la connexion puis réessaie.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4">
       <form
-        onSubmit={submitForm}
+        onSubmit={(event) => void submitForm(event)}
         className="w-full rounded-t-2xl bg-white p-5 shadow-soft sm:max-w-lg sm:rounded-2xl"
       >
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold">Ajouter un produit</h2>
-            <p className="text-sm text-slate-500">Tu peux d'abord tenter un scan de code-barres.</p>
+            <p className="text-sm text-slate-500">Tu peux scanner un code-barres ou le saisir manuellement.</p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeDialog}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
             aria-label="Fermer"
+            disabled={isSubmitting}
           >
             <X className="h-5 w-5" />
           </button>
@@ -203,20 +344,42 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
         <div className="space-y-4">
           <label className="block space-y-2 text-sm font-medium">
             <span>Code-barres</span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500 sm:flex-1"
                 value={barcode}
                 onChange={(event) => setBarcode(event.target.value)}
                 inputMode="numeric"
                 placeholder="Ex : 7376280645028"
               />
-              <Button type="button" variant="secondary" className="gap-2 px-3" onClick={lookupProduct}>
+              <Button type="button" variant="secondary" className="gap-2 px-3" onClick={() => void lookupProduct()} disabled={isSubmitting}>
                 <Search className="h-4 w-4" />
                 Chercher
               </Button>
+              <Button type="button" variant="secondary" className="gap-2 px-3" onClick={() => void startCameraScan()} disabled={isSubmitting || isScanning}>
+                <Camera className="h-4 w-4" />
+                Scanner caméra
+              </Button>
             </div>
           </label>
+
+          {isScanning ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <video ref={videoRef} className="h-52 w-full rounded-lg bg-black object-cover" muted playsInline />
+              <div className="mt-3 flex items-center justify-between">
+                <p className="text-sm text-slate-600">Recherche du code-barres en cours...</p>
+                <Button type="button" variant="ghost" className="h-8 px-3 text-xs" onClick={stopCamera}>
+                  Arrêter
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {scanError ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              {scanError}
+            </div>
+          ) : null}
 
           {lookup.status === "loading" ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
@@ -254,7 +417,7 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
 
           {lookup.status === "not-found" ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              Produit non reconnu. Tu peux continuer en saisie manuelle.
+              Aucun code détecté dans le catalogue. Continue en saisie manuelle.
             </div>
           ) : null}
 
@@ -329,11 +492,25 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
           </div>
         </div>
 
+        {validationMessage ? (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{validationMessage}</p>
+        ) : null}
+
+        {submitError ? (
+          <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{submitError}</p>
+        ) : null}
+
+        {isSubmitting ? (
+          <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">Ajout en cours...</p>
+        ) : null}
+
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={closeDialog} disabled={isSubmitting}>
             Annuler
           </Button>
-          <Button type="submit">Ajouter au stock</Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Ajout..." : "Ajouter au stock"}
+          </Button>
         </div>
       </form>
     </div>

@@ -6,15 +6,21 @@ import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
-import type { ShoppingGroup, ShoppingItem, ShoppingSuggestion } from "@/types/domain";
+import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
+import type { ShoppingGroup, ShoppingSuggestion } from "@/types/domain";
 
-const SHOPPING_LIST_STORAGE_KEY = "ecofoodstock:shopping-list";
 const SHOPPING_SUGGESTIONS_STORAGE_KEY = "ecofoodstock:shopping-suggestions-hidden";
-const SHOPPING_COMPLETION_STORAGE_KEY = "ecofoodstock:shopping-completion";
 
 type ShoppingCompletionSession = {
   completedAt: string;
   groups: ShoppingGroup[];
+};
+
+type ShoppingPayload = {
+  ok: boolean;
+  groups: ShoppingGroup[];
+  completedSession: ShoppingCompletionSession | null;
+  message?: string;
 };
 
 export function ShoppingView() {
@@ -22,20 +28,16 @@ export function ShoppingView() {
   const [suggestions, setSuggestions] = useState<ShoppingSuggestion[]>([]);
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<string[]>([]);
   const [completedSession, setCompletedSession] = useState<ShoppingCompletionSession | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const [submittingItem, setSubmittingItem] = useState(false);
+  const [completingList, setCompletingList] = useState(false);
+  const [shoppingError, setShoppingError] = useState<string | null>(null);
+  const [newItemLabel, setNewItemLabel] = useState("");
+  const [newItemQuantity, setNewItemQuantity] = useState("1");
 
   useEffect(() => {
     let storedHiddenIds: string[] = [];
-
-    try {
-      const storedGroups = window.localStorage.getItem(SHOPPING_LIST_STORAGE_KEY);
-      if (storedGroups) {
-        setGroups(JSON.parse(storedGroups) as ShoppingGroup[]);
-      }
-    } catch {
-      setGroups([]);
-    }
 
     try {
       const storedHidden = window.localStorage.getItem(SHOPPING_SUGGESTIONS_STORAGE_KEY);
@@ -47,74 +49,13 @@ export function ShoppingView() {
       setHiddenSuggestionIds([]);
     }
 
-    try {
-      const storedCompletion = window.localStorage.getItem(SHOPPING_COMPLETION_STORAGE_KEY);
-      if (storedCompletion) {
-        setCompletedSession(JSON.parse(storedCompletion) as ShoppingCompletionSession);
-      }
-    } catch {
-      setCompletedSession(null);
-    }
-
-    setHydrated(true);
-
-    const controller = new AbortController();
-
-    async function loadSuggestions() {
-      try {
-        setLoadingSuggestions(true);
-
-        const response = await fetch("/api/shopping/suggestions", {
-          signal: controller.signal,
-          cache: "no-store"
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = (await response.json()) as { suggestions: ShoppingSuggestion[] };
-        setSuggestions(payload.suggestions.filter((item) => !storedHiddenIds.includes(item.id)));
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setLoadingSuggestions(false);
-      }
-    }
-
-    loadSuggestions();
-
-    return () => controller.abort();
+    void loadShoppingState();
+    void loadSuggestions(storedHiddenIds);
   }, []);
 
   useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
-
-    window.localStorage.setItem(SHOPPING_LIST_STORAGE_KEY, JSON.stringify(groups));
-  }, [groups, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
-
     window.localStorage.setItem(SHOPPING_SUGGESTIONS_STORAGE_KEY, JSON.stringify(hiddenSuggestionIds));
-  }, [hiddenSuggestionIds, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) {
-      return;
-    }
-
-    if (completedSession) {
-      window.localStorage.setItem(SHOPPING_COMPLETION_STORAGE_KEY, JSON.stringify(completedSession));
-      return;
-    }
-
-    window.localStorage.removeItem(SHOPPING_COMPLETION_STORAGE_KEY);
-  }, [completedSession, hydrated]);
+  }, [hiddenSuggestionIds]);
 
   const totalItems = useMemo(() => groups.reduce((sum, group) => sum + group.items.length, 0), [groups]);
   const completedItems = useMemo(
@@ -122,43 +63,127 @@ export function ShoppingView() {
     [groups]
   );
 
-  function addSuggestionToList(suggestion: ShoppingSuggestion) {
-    const newItem: ShoppingItem = {
-      id: `${suggestion.id}-${Date.now()}`,
-      label: suggestion.label,
-      quantity: "1 unité",
-      icon: suggestion.icon,
-      imageUrl: suggestion.imageUrl,
-      checked: false
-    };
+  async function loadShoppingState() {
+    setLoadingList(true);
+    setShoppingError(null);
 
-    setGroups((current) => {
-      const next = current.map((group) => ({
-        ...group,
-        items: group.items.map((item) => ({ ...item }))
-      }));
-      const targetGroup = next.find((group) => group.category === "Ajouts récents");
+    try {
+      const response = await fetch("/api/shopping", {
+        cache: "no-store",
+        headers: await getBrowserAuthHeaders()
+      });
 
-      if (targetGroup) {
-        targetGroup.items.unshift(newItem);
-        return next;
+      const payload = (await response.json()) as ShoppingPayload;
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message ?? `HTTP ${response.status}`);
       }
 
-      return [{ category: "Ajouts récents", items: [newItem] }, ...next];
+      setGroups(payload.groups ?? []);
+      setCompletedSession(payload.completedSession ?? null);
+    } catch {
+      setShoppingError("Impossible de charger la liste de courses.");
+      setGroups([]);
+      setCompletedSession(null);
+    } finally {
+      setLoadingList(false);
+    }
+  }
+
+  async function loadSuggestions(hiddenIds: string[]) {
+    try {
+      setLoadingSuggestions(true);
+
+      const response = await fetch("/api/shopping/suggestions", {
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = (await response.json()) as { suggestions: ShoppingSuggestion[] };
+      setSuggestions(payload.suggestions.filter((item) => !hiddenIds.includes(item.id)));
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }
+
+  async function mutateShopping(actionPayload: Record<string, unknown>) {
+    const response = await fetch("/api/shopping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
+      body: JSON.stringify(actionPayload)
     });
 
+    const payload = (await response.json()) as ShoppingPayload;
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.message ?? `HTTP ${response.status}`);
+    }
+
+    setGroups(payload.groups ?? []);
+    setCompletedSession(payload.completedSession ?? null);
+  }
+
+  async function addManualItem() {
+    const label = newItemLabel.trim();
+    const quantity = Number(newItemQuantity.replace(",", "."));
+
+    if (!label || !Number.isFinite(quantity) || quantity <= 0) {
+      setShoppingError("Renseigne un nom d'article et une quantité valide.");
+      return;
+    }
+
+    setSubmittingItem(true);
+    setShoppingError(null);
+
+    try {
+      await mutateShopping({
+        action: "add_item",
+        label,
+        quantity,
+        unit: quantity > 1 ? "unités" : "unité",
+        category: "other"
+      });
+      setNewItemLabel("");
+      setNewItemQuantity("1");
+    } catch {
+      setShoppingError("Impossible d'ajouter cet article.");
+    } finally {
+      setSubmittingItem(false);
+    }
+  }
+
+  async function toggleChecked(itemId: string, checked: boolean) {
+    try {
+      await mutateShopping({ action: "toggle_item", itemId, checked });
+      setShoppingError(null);
+    } catch {
+      setShoppingError("Impossible de mettre à jour cet article.");
+    }
+  }
+
+  async function removeItem(itemId: string) {
+    try {
+      await mutateShopping({ action: "delete_item", itemId });
+      setShoppingError(null);
+    } catch {
+      setShoppingError("Impossible de supprimer cet article.");
+    }
+  }
+
+  function addSuggestionToForm(suggestion: ShoppingSuggestion) {
+    setNewItemLabel(suggestion.label);
     setSuggestions((current) => current.filter((candidate) => candidate.id !== suggestion.id));
     setHiddenSuggestionIds((current) => (current.includes(suggestion.id) ? current : [...current, suggestion.id]));
   }
 
-  function clearShoppingList() {
-    setGroups([]);
-  }
-
-  function resetShoppingList() {
-    setGroups([]);
-    window.localStorage.removeItem(SHOPPING_LIST_STORAGE_KEY);
-    setCompletedSession(null);
+  function hideSuggestion(itemId: string) {
+    setSuggestions((current) => current.filter((candidate) => candidate.id !== itemId));
+    setHiddenSuggestionIds((current) => (current.includes(itemId) ? current : [...current, itemId]));
   }
 
   function clearSuggestions() {
@@ -173,63 +198,47 @@ export function ShoppingView() {
     setLoadingSuggestions(true);
     window.localStorage.removeItem(SHOPPING_SUGGESTIONS_STORAGE_KEY);
     setHiddenSuggestionIds([]);
-    void fetch("/api/shopping/suggestions", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload: { suggestions: ShoppingSuggestion[] }) => setSuggestions(payload.suggestions))
-      .catch(() => setSuggestions([]))
-      .finally(() => setLoadingSuggestions(false));
+    void loadSuggestions([]);
   }
 
-  function removeItem(itemId: string) {
-    setGroups((current) =>
-      current
-        .map((group) => ({ ...group, items: group.items.filter((item) => item.id !== itemId) }))
-        .filter((group) => group.items.length > 0)
-    );
-  }
-
-  function hideSuggestion(itemId: string) {
-    setSuggestions((current) => current.filter((candidate) => candidate.id !== itemId));
-    setHiddenSuggestionIds((current) => (current.includes(itemId) ? current : [...current, itemId]));
-  }
-
-  function restoreInitialState() {
-    setGroups([]);
-    setCompletedSession(null);
-    window.localStorage.removeItem(SHOPPING_LIST_STORAGE_KEY);
-    window.localStorage.removeItem(SHOPPING_COMPLETION_STORAGE_KEY);
-  }
-
-  function completeShopping() {
-    const checkedGroups = groups
-      .map((group) => ({
-        ...group,
-        items: group.items.filter((item) => item.checked)
-      }))
-      .filter((group) => group.items.length > 0);
-
-    if (checkedGroups.length === 0) {
+  async function completeShopping() {
+    if (completedItems === 0) {
       return;
     }
 
-    setCompletedSession({
-      completedAt: new Date().toISOString(),
-      groups: checkedGroups
-    });
+    setCompletingList(true);
+    setShoppingError(null);
+
+    try {
+      await mutateShopping({ action: "complete_list" });
+    } catch {
+      setShoppingError("Impossible de terminer la liste de courses.");
+    } finally {
+      setCompletingList(false);
+    }
   }
 
-  function toggleChecked(itemId: string) {
-    setGroups((current) =>
-      current.map((group) => ({
-        ...group,
-        items: group.items.map((item) => (item.id === itemId ? { ...item, checked: !item.checked } : item))
-      }))
-    );
+  async function restoreInitialState() {
+    setCompletingList(true);
+    setShoppingError(null);
+
+    try {
+      await mutateShopping({ action: "archive_list" });
+      await loadShoppingState();
+    } catch {
+      setShoppingError("Impossible de réinitialiser la liste.");
+    } finally {
+      setCompletingList(false);
+    }
   }
 
   return (
     <div>
-      <PageHeader icon={ShoppingCart} title="Courses" description="Liste interactive alimentée par Open Food Facts." />
+      <PageHeader icon={ShoppingCart} title="Courses" description="Liste partagée et synchronisée pour tout le foyer." />
+
+      {shoppingError ? (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{shoppingError}</div>
+      ) : null}
 
       {completedSession ? (
         <Card className="mb-5 border-brand-200 bg-brand-50/80">
@@ -241,7 +250,7 @@ export function ShoppingView() {
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-900">Courses terminées</p>
                 <p className="text-sm text-slate-600">
-                  Il ne reste plus qu'à scanner les articles achetés pour les ajouter au stock.
+                  Il ne reste plus qu&apos;à scanner les articles achetés pour les ajouter au stock.
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Rappel enregistré le {new Date(completedSession.completedAt).toLocaleString("fr-FR")}
@@ -278,7 +287,7 @@ export function ShoppingView() {
 
       <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
         <Card>
-          <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="font-bold">Ma liste</h2>
               <p className="text-sm text-slate-500">
@@ -286,34 +295,47 @@ export function ShoppingView() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button variant="secondary" className="h-9 gap-2 px-3" onClick={restoreInitialState}>
+              <Button variant="secondary" className="h-9 gap-2 px-3" onClick={() => void restoreInitialState()} disabled={completingList}>
                 <RotateCcw className="h-4 w-4" />
                 Réinitialiser
-              </Button>
-              <Button variant="ghost" className="h-9 gap-2 px-3 text-rose-600" onClick={clearShoppingList} disabled={totalItems === 0}>
-                <Trash2 className="h-4 w-4" />
-                Vider
               </Button>
             </div>
           </div>
 
+          <div className="mb-5 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+            <input
+              className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+              value={newItemLabel}
+              onChange={(event) => setNewItemLabel(event.target.value)}
+              placeholder="Ajouter un article manuel"
+            />
+            <input
+              className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+              value={newItemQuantity}
+              onChange={(event) => setNewItemQuantity(event.target.value)}
+              inputMode="decimal"
+              placeholder="Quantité"
+            />
+            <Button className="h-11 gap-2" onClick={() => void addManualItem()} disabled={submittingItem}>
+              <Plus className="h-4 w-4" />
+              Ajouter
+            </Button>
+          </div>
+
+          {loadingList ? <p className="mb-4 text-sm text-slate-500">Chargement de la liste...</p> : null}
+
           <div className="space-y-6">
             {groups.map((group) => (
               <section key={group.category}>
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-                  {group.category}
-                </h3>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{group.category}</h3>
                 <div className="overflow-hidden rounded-xl border border-slate-200">
                   {group.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 border-b border-slate-100 px-3 py-4 last:border-b-0"
-                    >
+                    <div key={item.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-4 last:border-b-0">
                       <input
                         className="h-5 w-5 rounded border-slate-300"
                         type="checkbox"
                         checked={item.checked ?? false}
-                        onChange={() => toggleChecked(item.id)}
+                        onChange={() => void toggleChecked(item.id, !(item.checked ?? false))}
                       />
                       <ProductThumbnail
                         name={item.label}
@@ -325,7 +347,12 @@ export function ShoppingView() {
                         <p className={item.checked ? "truncate text-slate-400 line-through" : "truncate"}>{item.label}</p>
                         <p className="text-sm text-slate-500">{item.quantity}</p>
                       </div>
-                      <Button variant="ghost" className="h-8 w-8 px-0 text-slate-400 hover:text-rose-600" aria-label={`Supprimer ${item.label}`} onClick={() => removeItem(item.id)}>
+                      <Button
+                        variant="ghost"
+                        className="h-8 w-8 px-0 text-slate-400 hover:text-rose-600"
+                        aria-label={`Supprimer ${item.label}`}
+                        onClick={() => void removeItem(item.id)}
+                      >
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
@@ -334,9 +361,9 @@ export function ShoppingView() {
               </section>
             ))}
 
-            {groups.length === 0 ? (
+            {!loadingList && groups.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-                La liste est vide. Ajoute un produit depuis les suggestions.
+                La liste est vide. Ajoute un article ou utilise les suggestions.
               </div>
             ) : null}
           </div>
@@ -346,11 +373,11 @@ export function ShoppingView() {
               <CheckCircle2 className="h-7 w-7 text-brand-600" />
               <div>
                 <p className="font-semibold">{totalItems} article{totalItems > 1 ? "s" : ""} dans le panier</p>
-                <p className="text-sm text-slate-500">Pret a finaliser vos courses ?</p>
+                <p className="text-sm text-slate-500">Prêt à finaliser vos courses ?</p>
               </div>
             </div>
-            <Button onClick={completeShopping} disabled={completedItems === 0}>
-              Terminer
+            <Button onClick={() => void completeShopping()} disabled={completedItems === 0 || completingList}>
+              {completingList ? "En cours..." : "Terminer"}
             </Button>
           </div>
         </Card>
@@ -385,7 +412,7 @@ export function ShoppingView() {
                   <p className="font-medium">{item.label}</p>
                   <p className="text-sm text-slate-500">{item.reason}</p>
                 </div>
-                <Button className="h-9 w-9 px-0" aria-label={`Ajouter ${item.label}`} onClick={() => addSuggestionToList(item)}>
+                <Button className="h-9 w-9 px-0" aria-label={`Préremplir ${item.label}`} onClick={() => addSuggestionToForm(item)}>
                   <Plus className="h-4 w-4" />
                 </Button>
                 <Button variant="ghost" className="h-9 w-9 px-0" aria-label={`Masquer ${item.label}`} onClick={() => hideSuggestion(item.id)}>
@@ -405,5 +432,3 @@ export function ShoppingView() {
     </div>
   );
 }
-
-

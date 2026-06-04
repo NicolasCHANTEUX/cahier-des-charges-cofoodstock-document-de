@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
 
 type RouteContext = {
   params: Promise<{ barcode: string }>;
@@ -19,7 +20,7 @@ type CatalogProductRow = {
   default_unit: string;
 };
 
-export async function GET(_: Request, { params }: RouteContext) {
+export async function GET(req: Request, { params }: RouteContext) {
   const { barcode } = await params;
 
   const supabase = (() => {
@@ -29,6 +30,12 @@ export async function GET(_: Request, { params }: RouteContext) {
       return null;
     }
   })();
+  let canWriteCatalog = false;
+
+  if (supabase) {
+    const context = await resolveAccountContext(req, supabase);
+    canWriteCatalog = Boolean(context.authenticated && context.appUserId);
+  }
 
   if (supabase) {
     const { data: existingProduct, error: productError } = await supabase
@@ -66,7 +73,7 @@ export async function GET(_: Request, { params }: RouteContext) {
     return NextResponse.json({ ok: false, barcode, found: false }, { status: 404 });
   }
 
-  if (supabase) {
+  if (supabase && canWriteCatalog) {
     const { data: storedProduct, error: upsertError } = await supabase
       .from("products")
       .upsert(

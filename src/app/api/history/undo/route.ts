@@ -76,7 +76,13 @@ export async function POST(req: Request) {
 
   const undoEventId = undoEvent.id;
 
-  const createdUndoMovements: any[] = [];
+  const createdUndoMovements: Array<{
+    ok: boolean;
+    movementId?: string;
+    originalMovement?: string;
+    undoMovement?: string;
+    error?: string;
+  }> = [];
 
   for (const mv of movements ?? []) {
     try {
@@ -92,10 +98,12 @@ export async function POST(req: Request) {
         const { data: batchRow } = await supabase.from("inventory_batches").select("id, quantity_remaining, status").eq("id", batchId).maybeSingle();
         if (batchRow) {
           const currentQty = Number(batchRow.quantity_remaining ?? 0);
-          const newQty = currentQty + inverse;
+          const newQty = Math.max(0, currentQty + inverse);
           const updatePayload: Record<string, unknown> = { quantity_remaining: newQty };
           if (newQty > 0 && batchRow.status !== "active") {
             updatePayload.status = "active";
+          } else if (newQty <= 0 && batchRow.status !== "removed") {
+            updatePayload.status = "removed";
           }
           await supabase.from("inventory_batches").update(updatePayload).eq("id", batchId);
           effectiveBatchId = batchRow.id;
