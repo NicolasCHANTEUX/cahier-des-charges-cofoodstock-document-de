@@ -1,5 +1,6 @@
 import { mockInventory } from "@/lib/mock-data";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
+import { canUseDemoMode } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BadgeTone, InventoryItem, QuantityUnit, StorageArea } from "@/types/domain";
 
@@ -154,7 +155,10 @@ async function loadInventory() {
       .order("name", { ascending: true });
 
     if (error || !data) {
-      return mockInventory.map((item) => ({ ...item }));
+      if (canUseDemoMode()) {
+        return mockInventory.map((item) => ({ ...item }));
+      }
+      throw error ?? new Error("Unable to load inventory");
     }
 
     return (data as InventorySummaryRow[]).map((row) => ({
@@ -170,7 +174,10 @@ async function loadInventory() {
       dlcStatus: getExpirationStatus(row.nearest_expiration_date ?? undefined)
     }));
   } catch {
-    return mockInventory.map((item) => ({ ...item }));
+    if (canUseDemoMode()) {
+      return mockInventory.map((item) => ({ ...item }));
+    }
+    throw new Error("Unable to load dashboard inventory");
   }
 }
 

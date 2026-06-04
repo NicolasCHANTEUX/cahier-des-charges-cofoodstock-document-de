@@ -5,14 +5,11 @@ import { usePathname } from "next/navigation";
 import {
   Box,
   ClipboardList,
-  Clock3,
-  HeartPulse,
   History,
   Home,
   ScanBarcode,
   Settings,
-  ShoppingCart,
-  Utensils
+  ShoppingCart
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { routes } from "@/lib/routes";
@@ -21,8 +18,6 @@ const navItems = [
   { href: routes.dashboard, label: "Accueil", icon: Home },
   { href: routes.inventory, label: "Inventaire", icon: Box },
   { href: routes.history, label: "Historique", icon: History },
-  { href: routes.recipes, label: "Recettes", icon: Utensils },
-  { href: routes.health, label: "Sante", icon: HeartPulse },
   { href: routes.shopping, label: "Courses", icon: ShoppingCart },
   { href: routes.settings, label: "Parametres", icon: Settings }
 ];

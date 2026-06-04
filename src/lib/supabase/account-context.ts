@@ -10,6 +10,34 @@ export type AccountContext = {
   onboardingCompleted?: boolean;
 };
 
+export function isProductionEnvironment() {
+  return process.env.NODE_ENV === "production";
+}
+
+export function canUseDemoMode() {
+  return !isProductionEnvironment();
+}
+
+export async function userBelongsToHousehold(
+  supabase: SupabaseClient,
+  appUserId: string | undefined,
+  householdId: string | undefined
+) {
+  if (!appUserId || !householdId) {
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from("household_members")
+    .select("household_id")
+    .eq("user_id", appUserId)
+    .eq("household_id", householdId)
+    .limit(1)
+    .maybeSingle<{ household_id: string }>();
+
+  return !error && Boolean(data?.household_id);
+}
+
 export async function resolveAccountContext(request: Request, supabase: SupabaseClient): Promise<AccountContext> {
   const authorization = request.headers.get("authorization") ?? "";
   const accessToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";

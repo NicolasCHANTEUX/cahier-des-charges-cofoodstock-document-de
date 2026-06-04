@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
+import {
+  canUseDemoMode,
+  ensureUserHousehold,
+  isProductionEnvironment,
+  resolveAccountContext
+} from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 
@@ -20,7 +25,7 @@ export async function POST(req: Request) {
 
   try {
     supabase = createSupabaseServerClient();
-  } catch (err) {
+  } catch {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
@@ -39,10 +44,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, message: "Unable to resolve user account" }, { status: 500 });
     }
   } else {
-    householdId = req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+    if (isProductionEnvironment()) {
+      return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+    }
+
+    householdId = canUseDemoMode() ? req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID : undefined;
   }
 
-  if (!householdId) {
+  if (!householdId && canUseDemoMode()) {
     const { data: created, error: createErr } = await supabase
       .from("households")
       .insert({ name: "Demo household" })
@@ -56,13 +65,13 @@ export async function POST(req: Request) {
 
       // If the DB schema is not applied (tables missing), fallback to a simulated demo response
       const lower = msg?.toLowerCase() ?? "";
-      if (
+      if (canUseDemoMode() && (
         lower.includes("could not find the table") ||
         lower.includes("relation \"households\" does not exist") ||
         lower.includes("households") && lower.includes("schema") ||
         lower.includes("schema cache") ||
         lower.includes("does not exist")
-      ) {
+      )) {
         const fakeHouseholdId = `household-fake-${Date.now()}`;
         const fakeBatchId = `batch-fake-${Date.now()}`;
         const fakeMovementId = `movement-fake-${Date.now()}`;
@@ -101,6 +110,10 @@ export async function POST(req: Request) {
     }
 
     householdId = created.id;
+  }
+
+  if (!householdId) {
+    return NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 });
   }
 
   // Upsert product into catalog (by barcode if provided)
@@ -189,7 +202,7 @@ export async function POST(req: Request) {
     .from("activity_events")
     .insert(
       buildActivityEventInsert({
-        household_id: householdId || batch.household_id,
+        household_id: householdId,
         user_id: context.appUserId ?? null,
         type: "product_added",
         title: `+${quantity} ${product.name} ajoute au stock`,

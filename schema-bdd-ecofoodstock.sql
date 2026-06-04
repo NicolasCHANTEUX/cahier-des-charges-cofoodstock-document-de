@@ -11,7 +11,7 @@ create type storage_area as enum ('fresh', 'frozen', 'dry', 'other');
 create type batch_status as enum ('active', 'consumed', 'wasted', 'expired', 'removed');
 create type movement_type as enum ('add', 'consume', 'cook', 'waste', 'adjust', 'undo', 'shopping_transfer');
 create type shopping_item_status as enum ('suggested', 'active', 'checked', 'transferred', 'archived');
-create type activity_type as enum ('product_added', 'product_consumed', 'product_wasted', 'recipe_cooked', 'shopping_finished', 'undo');
+create type activity_type as enum ('product_added', 'product_consumed', 'product_wasted', 'product_adjusted', 'recipe_cooked', 'shopping_finished', 'undo');
 create type recipe_feedback_type as enum ('like', 'dislike', 'favorite');
 create type export_status as enum ('pending', 'ready', 'failed', 'expired');
 
@@ -352,4 +352,3 @@ join products p on p.id = ib.product_id
 where ib.status = 'active'
   and ib.expiration_date is not null
   and ib.expiration_date <= current_date + interval '3 days';
-

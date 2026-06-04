@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
+import { canUseDemoMode, ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mockInventory } from "@/lib/mock-data";
 import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
@@ -25,7 +25,10 @@ export async function GET(req: Request) {
   try {
     supabase = createSupabaseServerClient();
   } catch {
-    return NextResponse.json({ ok: true, inventory: mockInventory });
+    if (canUseDemoMode()) {
+      return NextResponse.json({ ok: true, inventory: mockInventory });
+    }
+    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
   const context = await resolveAccountContext(req, supabase);
@@ -56,7 +59,10 @@ export async function GET(req: Request) {
   const { data, error } = await query;
 
   if (error || !data) {
-    return NextResponse.json({ ok: true, inventory: mockInventory, warning: error?.message ?? "inventory_view_fallback" });
+    if (canUseDemoMode()) {
+      return NextResponse.json({ ok: true, inventory: mockInventory, warning: error?.message ?? "inventory_view_fallback" });
+    }
+    return NextResponse.json({ ok: false, message: "Unable to load inventory", error: error?.message }, { status: 500 });
   }
 
   const rows = data as InventorySummaryRow[];
