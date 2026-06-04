@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
+import { canUseDemoMode, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
 import { mapActivityEventRow } from "@/lib/activity-events";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
@@ -66,12 +66,23 @@ export async function POST(req: Request) {
 
   const context = await resolveAccountContext(req, supabase);
 
-  let householdId: string;
+  if (!context.authenticated || !context.appUserId) {
+    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+  }
 
-  try {
-    householdId = context.householdId ?? (await ensureDemoHousehold(supabase));
-  } catch (error) {
-    return NextResponse.json({ ok: false, message: "Unable to resolve demo household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  let householdId = context.householdId;
+
+  if (!householdId && canUseDemoMode()) {
+    try {
+      householdId = await ensureDemoHousehold(supabase);
+    } catch (error) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve demo household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
+  const canWrite = await userBelongsToHousehold(supabase, context.appUserId, householdId);
+  if (!canWrite || !householdId) {
+    return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
   }
 
   const { data, error } = await supabase

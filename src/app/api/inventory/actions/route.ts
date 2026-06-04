@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
+import {
+  canUseDemoMode,
+  isProductionEnvironment,
+  resolveAccountContext,
+  userBelongsToHousehold
+} from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type InventoryAction = "consume" | "waste" | "adjust";
@@ -34,12 +39,36 @@ export async function POST(req: Request) {
 
   try {
     supabase = createSupabaseServerClient();
-  } catch (error) {
+  } catch {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
   const context = await resolveAccountContext(req, supabase);
-  const householdId = context.householdId ?? String(payload.householdId ?? process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID ?? process.env.DEMO_HOUSEHOLD_ID ?? "");
+  const payloadHouseholdId = typeof payload.householdId === "string" ? payload.householdId.trim() : "";
+  let householdId = context.householdId ?? undefined;
+
+  if (context.authenticated) {
+    const requestedHouseholdId = payloadHouseholdId || householdId;
+    const belongsToHousehold = await userBelongsToHousehold(supabase, context.appUserId, requestedHouseholdId);
+
+    if (!requestedHouseholdId || !belongsToHousehold) {
+      return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
+    }
+
+    householdId = requestedHouseholdId;
+  } else {
+    if (isProductionEnvironment()) {
+      return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+    }
+
+    householdId = canUseDemoMode()
+      ? payloadHouseholdId || req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID || undefined
+      : undefined;
+  }
+
+  if (!householdId) {
+    return NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 });
+  }
 
   const { data: batch, error: batchError } = await supabase
     .from("inventory_batches")
@@ -48,6 +77,7 @@ export async function POST(req: Request) {
     .eq("household_id", householdId)
     .eq("status", "active")
     .gt("quantity_remaining", 0)
+    .order("expiration_date", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle<ActiveBatchRow>();
@@ -95,7 +125,7 @@ export async function POST(req: Request) {
     .from("activity_events")
     .insert(
       buildActivityEventInsert({
-        household_id: householdId || batch.household_id,
+        household_id: householdId,
         user_id: context.appUserId ?? null,
         type: movementType === "waste" ? "product_wasted" : movementType === "adjust" ? "product_adjusted" : "product_consumed",
         title:
@@ -126,7 +156,7 @@ export async function POST(req: Request) {
   const { data: movement, error: movementError } = await supabase
     .from("inventory_movements")
     .insert({
-      household_id: householdId || batch.household_id,
+      household_id: householdId,
       user_id: context.appUserId ?? null,
       inventory_batch_id: batch.id,
       product_id: productId,

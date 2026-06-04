@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
+import { resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 
@@ -15,11 +15,14 @@ export async function POST(req: Request) {
   let supabase;
   try {
     supabase = createSupabaseServerClient();
-  } catch (e) {
+  } catch {
     return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
   }
 
   const context = await resolveAccountContext(req, supabase);
+  if (!context.authenticated || !context.appUserId) {
+    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
+  }
 
   // fetch the activity event
   const { data: evRow, error: evErr } = await supabase.from("activity_events").select("id, household_id, type, title, can_undo, undone_at, metadata").eq("id", eventId).maybeSingle();
@@ -32,8 +35,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Event cannot be undone" }, { status: 400 });
   }
 
-  if (context.householdId && evRow.household_id !== context.householdId) {
-    return NextResponse.json({ ok: false, message: "Event not found" }, { status: 404 });
+  const canAccessEvent = await userBelongsToHousehold(supabase, context.appUserId, evRow.household_id);
+  if (!canAccessEvent) {
+    return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
   }
 
   if (evRow.undone_at) {
