@@ -53,8 +53,8 @@ type InventorySummaryRow = {
   image_url: string | null;
 };
 
-export async function createDashboardPayload(): Promise<DashboardPayload> {
-  const inventory = await loadInventory();
+export async function createDashboardPayload(householdId: string | null): Promise<DashboardPayload> {
+  const inventory = await loadInventory(householdId);
   const expiringCount = inventory.filter((item) => item.dlcStatus).length;
 
   return {
@@ -144,13 +144,21 @@ export async function createDashboardPayload(): Promise<DashboardPayload> {
   };
 }
 
-async function loadInventory() {
+async function loadInventory(householdId: string | null) {
+  if (!householdId) {
+    if (canUseDemoMode()) {
+      return mockInventory.map((item) => ({ ...item }));
+    }
+    throw new Error("Household is required to load dashboard inventory");
+  }
+
   try {
     const supabase = createSupabaseServerClient();
 
     const { data, error } = await supabase
       .from("active_inventory_summary")
       .select("product_id, name, storage_area, nearest_expiration_date, total_quantity_remaining, unit, image_url")
+      .eq("household_id", householdId)
       .order("nearest_expiration_date", { ascending: true, nullsFirst: false })
       .order("name", { ascending: true });
 
