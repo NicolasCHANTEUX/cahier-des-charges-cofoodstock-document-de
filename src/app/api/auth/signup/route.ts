@@ -12,20 +12,13 @@ export async function POST(request: Request) {
 
     const supabase = createSupabaseServerClient();
 
-    // Use admin createUser to create a new user server-side
-    // supabase-js v2 exposes auth.admin.createUser
-    // If not available, fallback to simple error.
-    // NOTE: This endpoint requires SUPABASE_SERVICE_ROLE_KEY set.
+    const adminAuth = supabase.auth.admin;
 
-    // @ts-ignore
-    if (!supabase.auth || !supabase.auth.admin || typeof supabase.auth.admin.createUser !== "function") {
+    if (!adminAuth || typeof adminAuth.createUser !== "function") {
       return NextResponse.json({ error: "Server Supabase admin API not available" }, { status: 501 });
     }
 
-    // create user
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const { data, error } = await supabase.auth.admin.createUser({
+    const { data, error } = await adminAuth.createUser({
       email,
       password,
       email_confirm: true,

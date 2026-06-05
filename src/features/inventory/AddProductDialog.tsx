@@ -50,6 +50,8 @@ const storageOptions: { label: string; value: StorageArea }[] = [
 ];
 const MAX_VIDEO_INIT_ATTEMPTS = 20;
 const VIDEO_INIT_RETRY_DELAY_MS = 50;
+const fieldClass = "block space-y-1.5 text-sm font-medium";
+const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-base outline-none focus:border-brand-500 sm:h-11 sm:text-sm";
 
 export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProductDialogProps) {
   const [barcode, setBarcode] = useState("");
@@ -72,6 +74,22 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
   useEffect(() => {
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const previousOverscrollBehavior = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "contain";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.overscrollBehavior = previousOverscrollBehavior;
+    };
+  }, [open]);
 
   if (!open) {
     return null;
@@ -346,54 +364,57 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-slate-950/35 p-0 sm:items-center sm:justify-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-slate-950/35 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:items-center sm:p-4">
       <form
         onSubmit={(event) => void submitForm(event)}
-        className="w-full rounded-t-2xl bg-white p-5 shadow-soft sm:max-w-lg sm:rounded-2xl"
+        className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-soft sm:max-h-[calc(100dvh-2rem)]"
       >
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold">Ajouter un produit</h2>
-            <p className="text-sm text-slate-500">Tu peux scanner un code-barres ou le saisir manuellement.</p>
+        <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold sm:text-xl">Ajouter un produit</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">Scanne un code-barres ou saisis le produit manuellement.</p>
+            </div>
+            <button
+              type="button"
+              onClick={closeDialog}
+              className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              aria-label="Fermer"
+              disabled={isSubmitting}
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={closeDialog}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Fermer"
-            disabled={isSubmitting}
-          >
-            <X className="h-5 w-5" />
-          </button>
         </div>
 
-        <div className="space-y-4">
-          <label className="block space-y-2 text-sm font-medium">
-            <span>Code-barres</span>
-            <div className="flex flex-wrap gap-2">
-              <input
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500 sm:flex-1"
-                value={barcode}
-                onChange={(event) => setBarcode(event.target.value)}
-                inputMode="numeric"
-                placeholder="Ex : 7376280645028"
-              />
-              <Button type="button" variant="secondary" className="gap-2 px-3" onClick={() => void lookupProduct()} disabled={isSubmitting}>
-                <Search className="h-4 w-4" />
-                Chercher
-              </Button>
-              <Button type="button" variant="secondary" className="gap-2 px-3" onClick={() => void startCameraScan()} disabled={isSubmitting || isScanning}>
-                <Camera className="h-4 w-4" />
-                Scanner caméra
-              </Button>
-            </div>
-          </label>
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 sm:py-4">
+          <div className="space-y-3 sm:space-y-4">
+            <label className={fieldClass}>
+              <span>Code-barres</span>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className={`${controlClass} col-span-2`}
+                  value={barcode}
+                  onChange={(event) => setBarcode(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="Ex : 7376280645028"
+                />
+                <Button type="button" variant="secondary" className="h-10 gap-2 px-3" onClick={() => void lookupProduct()} disabled={isSubmitting}>
+                  <Search className="h-4 w-4" />
+                  Chercher
+                </Button>
+                <Button type="button" variant="secondary" className="h-10 gap-2 px-3" onClick={() => void startCameraScan()} disabled={isSubmitting || isScanning}>
+                  <Camera className="h-4 w-4" />
+                  Scanner
+                </Button>
+              </div>
+            </label>
 
           {isScanning ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <video ref={videoRef} className="h-52 w-full rounded-lg bg-black object-cover" muted playsInline />
-              <div className="mt-3 flex items-center justify-between">
-                <p className="text-sm text-slate-600">Recherche du code-barres en cours...</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+              <video ref={videoRef} className="h-40 w-full rounded-lg bg-black object-cover sm:h-52" muted playsInline />
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-sm text-slate-600">Recherche du code-barres...</p>
                 <Button type="button" variant="ghost" className="h-8 px-3 text-xs" onClick={stopCamera}>
                   Arrêter
                 </Button>
@@ -453,31 +474,31 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
             </div>
           ) : null}
 
-          <label className="block space-y-2 text-sm font-medium">
+          <label className={fieldClass}>
             <span>Nom du produit</span>
             <input
-              className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+              className={controlClass}
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Ex : Riz basmati"
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-2 text-sm font-medium">
+          <div className="grid grid-cols-2 gap-3">
+            <label className={fieldClass}>
               <span>Quantite</span>
               <input
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+                className={controlClass}
                 value={quantity}
                 onChange={(event) => setQuantity(event.target.value)}
                 inputMode="decimal"
               />
             </label>
 
-            <label className="block space-y-2 text-sm font-medium">
+            <label className={fieldClass}>
               <span>Unite</span>
               <select
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+                className={controlClass}
                 value={unit}
                 onChange={(event) => setUnit(event.target.value as QuantityUnit)}
               >
@@ -490,11 +511,11 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
             </label>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block space-y-2 text-sm font-medium">
+          <div className="grid grid-cols-2 gap-3">
+            <label className={fieldClass}>
               <span>Zone</span>
               <select
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+                className={controlClass}
                 value={storageArea}
                 onChange={(event) => setStorageArea(event.target.value as StorageArea)}
               >
@@ -506,10 +527,10 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
               </select>
             </label>
 
-            <label className="block space-y-2 text-sm font-medium">
+            <label className={fieldClass}>
               <span>DLC facultative</span>
               <input
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
+                className={controlClass}
                 value={expirationDate}
                 onChange={(event) => setExpirationDate(event.target.value)}
                 type="date"
@@ -529,12 +550,13 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
         {isSubmitting ? (
           <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">Ajout en cours...</p>
         ) : null}
+        </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Button variant="secondary" onClick={closeDialog} disabled={isSubmitting}>
+        <div className="grid shrink-0 grid-cols-[0.85fr_1.15fr] gap-2 border-t border-slate-100 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:grid-cols-2 sm:px-5 sm:pb-4">
+          <Button variant="secondary" className="h-10" onClick={closeDialog} disabled={isSubmitting}>
             Annuler
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" className="h-10" disabled={isSubmitting}>
             {isSubmitting ? "Ajout..." : "Ajouter au stock"}
           </Button>
         </div>

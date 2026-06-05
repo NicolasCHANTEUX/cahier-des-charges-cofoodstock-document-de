@@ -1,12 +1,16 @@
 {
+  "id": "/",
   "name": "EcoFoodStock",
   "short_name": "EcoFoodStock",
   "description": "Assistant domestique pour stock alimentaire et DLC",
-  "start_url": "/",
+  "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
+  "lang": "fr",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.svg",

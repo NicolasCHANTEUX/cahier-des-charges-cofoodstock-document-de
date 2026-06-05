@@ -8,6 +8,28 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 
+type ProductPayload = {
+  id?: string;
+  barcode?: string;
+  name?: string;
+  brand?: string | null;
+  category?: string | null;
+  imageUrl?: string | null;
+  source?: string;
+  default_storage_area?: string;
+  default_unit?: string;
+  quantityText?: string | null;
+};
+
+type CreateBatchPayload = {
+  product?: ProductPayload;
+  quantity?: unknown;
+  unit?: string;
+  storageArea?: string;
+  expirationDate?: string | null;
+  notes?: string | null;
+};
+
 export async function POST(req: Request) {
   const payload = await req.json().catch(() => null);
 
@@ -15,9 +37,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: "Payload JSON required" }, { status: 400 });
   }
 
-  const { product = {}, quantity, unit, storageArea, expirationDate, notes } = payload as any;
+  const { product = {}, quantity, unit, storageArea, expirationDate, notes } =
+    payload as CreateBatchPayload;
+  const numericQuantity = Number(quantity);
 
-  if (!product || !product.name || !quantity || Number(quantity) <= 0) {
+  if (!product || !product.name || !quantity || numericQuantity <= 0) {
     return NextResponse.json({ ok: false, message: "Invalid payload" }, { status: 400 });
   }
 
@@ -80,8 +104,8 @@ export async function POST(req: Request) {
           id: fakeBatchId,
           household_id: fakeHouseholdId,
           product_id: product.id ?? `product-fake-${Date.now()}`,
-          quantity_initial: quantity,
-          quantity_remaining: quantity,
+          quantity_initial: numericQuantity,
+          quantity_remaining: numericQuantity,
           unit: unit ?? "unit",
           storage_area: storageArea ?? "other",
           expiration_date: expirationDate ?? null,
@@ -96,7 +120,7 @@ export async function POST(req: Request) {
           inventory_batch_id: fakeBatchId,
           product_id: fakeBatch.product_id,
           type: "add",
-          quantity_delta: quantity,
+          quantity_delta: numericQuantity,
           unit: unit ?? "unit",
           reason: "Ajout depuis scan",
           metadata: { source: "scan" },
@@ -120,14 +144,14 @@ export async function POST(req: Request) {
   let productId: string | undefined = product.id;
 
   if (!productId) {
-    const upsertPayload: any = {
+    const upsertPayload: Record<string, unknown> = {
       name: product.name,
       brand: product.brand ?? null,
       category: product.category ?? null,
       image_url: product.imageUrl ?? null,
       source: product.source ?? "manual",
       default_storage_area: product.default_storage_area ?? "other",
-      default_unit: product.default_unit ?? (product.quantityText ? "unit" : "unit")
+      default_unit: product.default_unit ?? "unit"
     };
 
     if (product.barcode) {
@@ -155,8 +179,8 @@ export async function POST(req: Request) {
   const batchInsert = {
     household_id: householdId,
     product_id: productId,
-    quantity_initial: quantity,
-    quantity_remaining: quantity,
+    quantity_initial: numericQuantity,
+    quantity_remaining: numericQuantity,
     unit: unit ?? "unit",
     storage_area: storageArea ?? "other",
     expiration_date: expirationDate ?? null,
@@ -182,11 +206,11 @@ export async function POST(req: Request) {
     product_id: productId,
     user_id: context.appUserId ?? null,
     type: "add",
-    quantity_delta: quantity,
+    quantity_delta: numericQuantity,
     unit: unit ?? "unit",
     reason: "Ajout depuis scan",
     metadata: { source: "scan" }
-  } as any;
+  };
 
   const { data: movement, error: movementError } = await supabase
     .from("inventory_movements")
@@ -205,8 +229,8 @@ export async function POST(req: Request) {
         household_id: householdId,
         user_id: context.appUserId ?? null,
         type: "product_added",
-        title: `+${quantity} ${product.name} ajoute au stock`,
-        description: `${quantity} ${unit ?? "unit"} - ajout via scan`,
+        title: `+${numericQuantity} ${product.name} ajoute au stock`,
+        description: `${numericQuantity} ${unit ?? "unit"} - ajout via scan`,
         product_id: productId,
         can_undo: true,
         metadata: {

@@ -106,7 +106,7 @@ export function HistoryView() {
       ) : null}
 
       <div className="mb-5 flex flex-wrap gap-2">
-        {filters.map((filter, index) => (
+        {filters.map((filter) => (
           <button key={filter} type="button" onClick={() => setActiveFilter(filter)}>
             <Badge tone={activeFilter === filter ? "blue" : "slate"}>
               {filter}
@@ -127,26 +127,26 @@ export function HistoryView() {
           </p>
         </Card>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           {visibleGroups.map((group) => (
             <section key={group.label}>
-              <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+              <h2 className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 sm:mb-2 sm:text-xs">
                 {group.label}
               </h2>
-              <Card className="space-y-3 p-3">
+              <Card className="space-y-1.5 p-1.5 sm:space-y-3 sm:p-3">
                 {group.events.map((event) => (
-                  <div key={event.id} className="flex items-center gap-3 rounded-lg p-2">
-                    <span className={`h-3 w-3 rounded-full ${event.color}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{event.title}</p>
-                      <p className="text-sm text-slate-500">
+                  <div key={event.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 sm:gap-3 sm:p-2">
+                    <span className={`h-2.5 w-2.5 rounded-full sm:h-3 sm:w-3 ${event.color}`} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium leading-5 text-slate-900 sm:text-base" title={event.title}>{event.title}</p>
+                      <p className="truncate text-xs leading-4 text-slate-500 sm:text-sm" title={`${event.description} - ${formatActivityTime(event.createdAt)}`}>
                         {event.description} - {formatActivityTime(event.createdAt)}
                       </p>
                     </div>
                     {event.canUndo ? (
                       <Button
                         variant="secondary"
-                        className="h-8 px-3 text-xs"
+                        className="h-7 shrink-0 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs"
                         onClick={() => void undoEvent(event)}
                         disabled={undoingEventId === event.id}
                       >

@@ -29,7 +29,7 @@ Note MVP 1 courses -> inventaire :
 
 - la finalisation des courses archive la liste et cree un evenement d'activite ;
 - le transfert automatique des articles coches vers `inventory_batches` n'est pas active dans ce MVP ;
-- apres les courses, ajouter les produits au stock via l'écran inventaire (scan code-barres ou saisie manuelle).
+- apres les courses, ajouter les produits au stock via l'ecran inventaire (scan code-barres ou saisie manuelle).
 
 Repousse :
 
@@ -55,6 +55,19 @@ Puis ouvrir :
 ```text
 http://localhost:3000
 ```
+
+## Installation PWA
+
+L'application est configuree comme PWA :
+
+- manifeste web : `public/manifest.webmanifest` ;
+- icones 192 / 512 : `public/icon-192.svg` et `public/icon-512.svg` ;
+- service worker : `public/sw.js` ;
+- page hors-ligne minimale : `public/offline.html` ;
+- invite d'installation Chrome / Android quand `beforeinstallprompt` est disponible ;
+- aide iOS pour l'ajout manuel a l'ecran d'accueil.
+
+En local, Chrome peut proposer l'installation sur `localhost`. Si l'option n'apparait pas tout de suite, recharger une fois la page apres le premier chargement pour laisser le service worker s'enregistrer.
 
 ## Donnees et API
 

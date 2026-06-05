@@ -11,7 +11,7 @@ import { clearBrowserAccountStatusCache } from "@/lib/supabase/browser-account";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import { buildAccountStorageKey } from "@/lib/account-storage";
 import { routes } from "@/lib/routes";
-import { buildSettingsChangeSummary, calculateBmi, calculateBmr, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
+import { buildSettingsChangeSummary, calculateBmi, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
 
 const STORAGE_KEY = "ecofoodstock:settings-profile";
 
@@ -98,7 +98,6 @@ export function SettingsView() {
   }, [storageKey]);
 
   const bmi = useMemo(() => calculateBmi(profile), [profile]);
-  const bmr = useMemo(() => calculateBmr(profile), [profile]);
   const maintenanceCalories = useMemo(() => calculateMaintenanceCalories(profile), [profile]);
   const targetCalories = useMemo(() => calculateTargetCalories(profile), [profile]);
   const showAdvanced = profile.appMode === "athlete" || advancedOpen;
@@ -108,15 +107,24 @@ export function SettingsView() {
     setStatus(null);
 
     try {
-      const nextStorageKey = storageKey ?? STORAGE_KEY;
-      window.localStorage.setItem(nextStorageKey, JSON.stringify(profile));
+      persistProfileLocally(profile);
+
+      const settingsResponse = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
+        body: JSON.stringify(profile)
+      });
+
+      if (!settingsResponse.ok) {
+        throw new Error(`HTTP ${settingsResponse.status}`);
+      }
 
       const changes = buildSettingsChangeSummary(baselineRef.current, profile);
 
       if (changes !== "Aucune modification") {
         await fetch("/api/history", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
           body: JSON.stringify({
             type: "product_adjusted",
             title: "Paramètres mis à jour",
@@ -140,20 +148,38 @@ export function SettingsView() {
     }
   }
 
+  function persistProfileLocally(nextProfile: SettingsProfile) {
+    const nextStorageKey = storageKey ?? STORAGE_KEY;
+    window.localStorage.setItem(nextStorageKey, JSON.stringify(nextProfile));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProfile));
+  }
+
   function updateProfile<K extends keyof SettingsProfile>(key: K, value: SettingsProfile[K]) {
-    setProfile((current) => ({ ...current, [key]: value }));
+    setProfile((current) => {
+      const nextProfile = { ...current, [key]: value };
+      persistProfileLocally(nextProfile);
+      return nextProfile;
+    });
   }
 
   function updateGoal(goal: SettingsProfile["goal"]) {
-    setProfile((current) => ({
-      ...current,
-      goal,
-      dailyCaloriesAdjustment: goal === "maintenance" ? 0 : getGoalDefaultAdjustment(goal)
-    }));
+    setProfile((current) => {
+      const nextProfile = {
+        ...current,
+        goal,
+        dailyCaloriesAdjustment: goal === "maintenance" ? 0 : getGoalDefaultAdjustment(goal)
+      };
+      persistProfileLocally(nextProfile);
+      return nextProfile;
+    });
   }
 
   function updateMode(appMode: SettingsProfile["appMode"]) {
-    setProfile((current) => ({ ...current, appMode }));
+    setProfile((current) => {
+      const nextProfile = { ...current, appMode };
+      persistProfileLocally(nextProfile);
+      return nextProfile;
+    });
 
     if (appMode === "athlete") {
       setAdvancedOpen(true);
@@ -188,7 +214,7 @@ export function SettingsView() {
       setInviteToken(json.token);
       setInviteExpiresAt(json.expires_at || null);
       setStatus("Invitation generee.");
-    } catch (err) {
+    } catch {
       setStatus("Erreur lors de la generation de l'invitation.");
     } finally {
       setGeneratingInvite(false);

@@ -46,6 +46,14 @@ export async function GET(req: Request, { params }: RouteContext) {
 
     if (!productError && existingProduct) {
       const offProduct = await lookupOpenFoodFactsProduct(barcode).catch(() => null);
+      const imageUrl = existingProduct.image_url ?? offProduct?.imageUrl ?? null;
+
+      if (!existingProduct.image_url && offProduct?.imageUrl && canWriteCatalog) {
+        await supabase
+          .from("products")
+          .update({ image_url: offProduct.imageUrl })
+          .eq("id", existingProduct.id);
+      }
 
       return NextResponse.json({
         ok: true,
@@ -56,7 +64,7 @@ export async function GET(req: Request, { params }: RouteContext) {
           name: existingProduct.name,
           brand: existingProduct.brand ?? undefined,
           category: existingProduct.category ?? undefined,
-          imageUrl: proxiedOffImageUrl(existingProduct.image_url ?? undefined),
+          imageUrl: proxiedOffImageUrl(imageUrl),
           source: "supabase" as const,
           quantityText: offProduct?.quantityText,
           quantityValue: offProduct?.quantityValue,

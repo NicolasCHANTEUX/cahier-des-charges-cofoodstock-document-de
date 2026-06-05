@@ -14,6 +14,8 @@ import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { InventoryItem } from "@/types/domain";
 
 const filters = ["Tous", "Frais", "Surgeles", "Sec", "DLC Proche"];
+const inventoryActionButtonClass = "h-8 min-w-0 gap-1 px-1.5 text-[11px] sm:h-9 sm:gap-2 sm:px-3 sm:text-sm";
+const inventoryActionIconClass = "h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4";
 
 export function InventoryView() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -102,7 +104,7 @@ export function InventoryView() {
       }
 
       await loadInventory();
-    } catch (error) {
+    } catch {
       setError("Impossible de modifier le stock pour le moment.");
     } finally {
       setMutatingId(null);
@@ -144,7 +146,7 @@ export function InventoryView() {
         </Button>
       </div>
 
-      <Card className="mx-auto max-w-4xl">
+      <Card className="mx-auto max-w-4xl p-3 sm:p-5">
         {error ? (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {error}
@@ -152,14 +154,14 @@ export function InventoryView() {
         ) : null}
 
         <input
-          className="mb-4 h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500"
+          className="mb-3 h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 sm:mb-4 sm:h-12"
           placeholder="Rechercher un produit..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
 
-        <div className="mb-5 flex flex-wrap gap-2">
-          {filters.map((filter, index) => (
+        <div className="mb-4 flex flex-wrap gap-1.5 sm:mb-5 sm:gap-2">
+          {filters.map((filter) => (
             <button key={filter} type="button" onClick={() => setActiveFilter(filter)}>
               <Badge tone={activeFilter === filter ? "green" : "slate"}>
                 {filter}
@@ -180,62 +182,60 @@ export function InventoryView() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             {filteredInventory.map((item) => (
               <div
                 key={item.id}
-                className="grid gap-3 rounded-lg border border-slate-200 px-3 py-3 sm:grid-cols-[auto_auto_1fr_auto_auto] sm:items-center"
+                className="rounded-lg border border-slate-200 px-3 py-2 sm:grid sm:grid-cols-[auto_auto_1fr_auto_auto] sm:items-center sm:gap-3 sm:py-3"
               >
                 <input className="hidden h-5 w-5 rounded border-slate-300 sm:block" type="checkbox" />
-                <div className="flex items-center gap-3">
+                <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 sm:contents">
                   <ProductThumbnail name={item.name} imageUrl={item.imageUrl} fallbackLabel={item.icon} />
-                  <div className="min-w-0 sm:hidden">
-                    <p className="truncate font-medium">{item.name}</p>
-                    <p className="truncate text-sm text-slate-500">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950 sm:text-base sm:font-medium">{item.name}</p>
+                    <p className="truncate text-xs text-slate-500 sm:text-sm">
                       {formatQuantity(item.quantity, item.unit)}
                       {item.expirationLabel ? ` - ${item.expirationLabel}` : ""}
                     </p>
                   </div>
-                </div>
 
-                <div className="hidden min-w-0 sm:block">
-                  <p className="truncate font-medium">{item.name}</p>
-                  <p className="truncate text-sm text-slate-500">
-                    {formatQuantity(item.quantity, item.unit)}
-                    {item.expirationLabel ? ` - ${item.expirationLabel}` : ""}
-                  </p>
-                </div>
+                  {item.dlcStatus ? (
+                    <Badge className="justify-self-end px-2 py-0.5 text-[11px] sm:px-2.5 sm:py-1 sm:text-xs" tone={item.dlcStatus.tone}>
+                      {item.dlcStatus.label}
+                    </Badge>
+                  ) : (
+                    <span className="hidden sm:block" />
+                  )}
 
-                {item.dlcStatus ? <Badge tone={item.dlcStatus.tone}>{item.dlcStatus.label}</Badge> : <span />}
-
-                <div className="flex flex-wrap items-center gap-1">
-                  <Button
-                    variant="secondary"
-                    className="h-9 gap-2 px-3"
-                    disabled={mutatingId === item.id}
-                    onClick={() => askDecrease(item, "adjust")}
-                  >
-                    <MinusCircle className="h-4 w-4" />
-                    Reduire
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    className="h-9 gap-2 px-3"
-                    disabled={mutatingId === item.id}
-                    onClick={() => askDecrease(item, "consume")}
-                  >
-                    <Utensils className="h-4 w-4" />
-                    Consomme
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="h-9 gap-2 px-3 text-rose-600"
-                    disabled={mutatingId === item.id}
-                    onClick={() => askDecrease(item, "waste")}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Jete
-                  </Button>
+                  <div className="col-span-3 grid grid-cols-3 gap-1.5 sm:col-auto sm:flex sm:flex-wrap sm:items-center sm:gap-1">
+                    <Button
+                      variant="secondary"
+                      className={inventoryActionButtonClass}
+                      disabled={mutatingId === item.id}
+                      onClick={() => askDecrease(item, "adjust")}
+                    >
+                      <MinusCircle className={inventoryActionIconClass} />
+                      Reduire
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className={inventoryActionButtonClass}
+                      disabled={mutatingId === item.id}
+                      onClick={() => askDecrease(item, "consume")}
+                    >
+                      <Utensils className={inventoryActionIconClass} />
+                      Consomme
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className={`${inventoryActionButtonClass} text-rose-600`}
+                      disabled={mutatingId === item.id}
+                      onClick={() => askDecrease(item, "waste")}
+                    >
+                      <Trash2 className={inventoryActionIconClass} />
+                      Jete
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}

@@ -1,5 +1,6 @@
-const CACHE_NAME = "ecofoodstock-v1";
-const APP_SHELL = ["/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg", "/apple-touch-icon.svg"];
+const CACHE_NAME = "ecofoodstock-v2";
+const OFFLINE_URL = "/offline.html";
+const APP_SHELL = [OFFLINE_URL, "/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg", "/apple-touch-icon.svg"];
 const APP_SHELL_SET = new Set(APP_SHELL);
 
 function isLocalDevelopment() {
@@ -21,8 +22,7 @@ self.addEventListener("activate", (event) => {
   if (isLocalDevelopment()) {
     event.waitUntil(
       caches.keys()
-        .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
-        .then(() => self.registration.unregister())
+        .then((keys) => Promise.all(keys.filter((key) => key.startsWith("ecofoodstock-")).map((key) => caches.delete(key))))
         .then(() => self.clients.claim())
     );
     return;
@@ -40,15 +40,18 @@ self.addEventListener("fetch", (event) => {
   const isNavigation = event.request.mode === "navigate";
   const sameOrigin = url.origin === self.location.origin;
 
-  if (isLocalDevelopment() || url.pathname.startsWith("/_next/") || url.pathname.startsWith("/api/")) {
+  if (isLocalDevelopment() || !sameOrigin || url.pathname.startsWith("/_next/") || url.pathname.startsWith("/api/")) {
     return;
   }
 
   if (isNavigation) {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match(OFFLINE_URL))
+    );
     return;
   }
 
-  if (sameOrigin && APP_SHELL_SET.has(url.pathname)) {
+  if (APP_SHELL_SET.has(url.pathname)) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;

@@ -25,7 +25,11 @@ type OpenFoodFactsProduct = {
   brands?: string;
   categories?: string;
   image_front_url?: string;
+  image_front_small_url?: string;
+  image_front_thumb_url?: string;
   image_url?: string;
+  image_small_url?: string;
+  image_thumb_url?: string;
   selected_images?: {
     front?: {
       display?: { en?: string; fr?: string; ar?: string };
@@ -33,6 +37,7 @@ type OpenFoodFactsProduct = {
       thumb?: { en?: string; fr?: string; ar?: string };
     };
   };
+  images?: Record<string, OpenFoodFactsImageEntry>;
   quantity?: string;
   nutriscore_grade?: string;
   nutriments?: {
@@ -46,11 +51,39 @@ type OpenFoodFactsProduct = {
   };
 };
 
+type OpenFoodFactsImageEntry = {
+  rev?: number | string;
+  sizes?: Record<string, unknown>;
+};
+
 type OpenFoodFactsApiResponse = {
   status: number;
   product?: OpenFoodFactsProduct;
   products?: OpenFoodFactsProduct[];
 };
+
+type SearchOpenFoodFactsOptions = {
+  image?: boolean;
+  sortBy?: "unique_scans_n" | "product_name";
+};
+
+const OFF_PRODUCT_FIELDS = [
+  "code",
+  "product_name",
+  "brands",
+  "categories",
+  "image_front_url",
+  "image_front_small_url",
+  "image_front_thumb_url",
+  "image_url",
+  "image_small_url",
+  "image_thumb_url",
+  "selected_images",
+  "images",
+  "quantity",
+  "nutriscore_grade",
+  "nutriments"
+].join(",");
 
 export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenFoodFactsLookupResult | null> {
   const cleanBarcode = barcode.trim();
@@ -59,7 +92,7 @@ export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenF
     return null;
   }
 
-  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json`, {
+  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=${encodeURIComponent(OFF_PRODUCT_FIELDS)}`, {
     headers: {
       "User-Agent": "EcoFoodStock/0.1.0"
     }
@@ -78,21 +111,39 @@ export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenF
   return mapOffProduct(payload.product, cleanBarcode);
 }
 
-export async function searchOpenFoodFactsProducts(query: string, pageSize = 1): Promise<OpenFoodFactsLookupResult[]> {
+export async function searchOpenFoodFactsProducts(
+  query: string,
+  pageSize = 1,
+  options: SearchOpenFoodFactsOptions = {}
+): Promise<OpenFoodFactsLookupResult[]> {
   const cleanQuery = query.trim();
 
   if (!cleanQuery) {
     return [];
   }
 
-  const response = await fetch(
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(cleanQuery)}&search_simple=1&action=process&json=1&page_size=${pageSize}`,
-    {
-      headers: {
-        "User-Agent": "EcoFoodStock/0.1.0"
-      }
+  const params = new URLSearchParams({
+    search_terms: cleanQuery,
+    search_simple: "1",
+    action: "process",
+    json: "1",
+    page_size: String(pageSize),
+    fields: OFF_PRODUCT_FIELDS
+  });
+
+  if (options.image !== undefined) {
+    params.set("image", options.image ? "1" : "0");
+  }
+
+  if (options.sortBy) {
+    params.set("sort_by", options.sortBy);
+  }
+
+  const response = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`, {
+    headers: {
+      "User-Agent": "EcoFoodStock/0.1.0"
     }
-  );
+  });
 
   if (!response.ok) {
     return [];
@@ -116,7 +167,7 @@ function mapOffProduct(product: OpenFoodFactsProduct, fallbackBarcode?: string):
     name: product.product_name?.trim() || "Produit sans nom",
     brand: product.brands?.split(",").map((value) => value.trim()).filter(Boolean)[0],
     category: product.categories?.split(",").map((value) => value.trim()).filter(Boolean)[0],
-    imageUrl: extractImageUrl(product),
+    imageUrl: extractImageUrl(product, product.code ?? fallbackBarcode),
     quantityText: product.quantity?.trim(),
     quantityValue: parsedQuantity?.value,
     quantityUnit: parsedQuantity?.unit,
@@ -205,10 +256,14 @@ function containsAny(haystack: string, keywords: string[]) {
   return keywords.some((keyword) => haystack.includes(keyword));
 }
 
-function extractImageUrl(product: OpenFoodFactsProduct) {
+function extractImageUrl(product: OpenFoodFactsProduct, barcode?: string) {
   return (
     product.image_front_url ||
+    product.image_front_small_url ||
+    product.image_front_thumb_url ||
     product.image_url ||
+    product.image_small_url ||
+    product.image_thumb_url ||
     product.selected_images?.front?.display?.fr ||
     product.selected_images?.front?.display?.en ||
     product.selected_images?.front?.display?.ar ||
@@ -217,6 +272,82 @@ function extractImageUrl(product: OpenFoodFactsProduct) {
     product.selected_images?.front?.small?.ar ||
     product.selected_images?.front?.thumb?.fr ||
     product.selected_images?.front?.thumb?.en ||
-    product.selected_images?.front?.thumb?.ar
+    product.selected_images?.front?.thumb?.ar ||
+    buildImageUrlFromImages(product.images, barcode)
   );
+}
+
+function buildImageUrlFromImages(images?: OpenFoodFactsProduct["images"], barcode?: string) {
+  const imageFolder = buildProductImageFolder(barcode);
+
+  if (!images || !imageFolder) {
+    return undefined;
+  }
+
+  const selectedFrontKey = pickSelectedFrontImageKey(images);
+  if (selectedFrontKey) {
+    const image = images[selectedFrontKey];
+    const revision = image?.rev;
+    const resolution = pickImageResolution(image?.sizes);
+
+    if (revision && resolution) {
+      return `${imageFolder}/${selectedFrontKey}.${revision}.${resolution}.jpg`;
+    }
+  }
+
+  const rawImageKey = Object.keys(images)
+    .filter((key) => /^\d+$/.test(key))
+    .sort((left, right) => Number(left) - Number(right))[0];
+
+  if (!rawImageKey) {
+    return undefined;
+  }
+
+  const resolution = pickImageResolution(images[rawImageKey]?.sizes);
+  const suffix = resolution && resolution !== "full" ? `.${resolution}` : "";
+  return `${imageFolder}/${rawImageKey}${suffix}.jpg`;
+}
+
+function pickSelectedFrontImageKey(images: NonNullable<OpenFoodFactsProduct["images"]>) {
+  const preferredKeys = ["front_fr", "front_en", "front_es", "front_de", "front_it", "front"];
+  const matchingPreferredKey = preferredKeys.find((key) => images[key]?.rev);
+
+  if (matchingPreferredKey) {
+    return matchingPreferredKey;
+  }
+
+  return Object.keys(images)
+    .filter((key) => key.startsWith("front_") && images[key]?.rev)
+    .sort()[0];
+}
+
+function pickImageResolution(sizes?: OpenFoodFactsImageEntry["sizes"]) {
+  if (!sizes) {
+    return "400";
+  }
+
+  for (const resolution of ["400", "200", "100", "full"]) {
+    if (Object.prototype.hasOwnProperty.call(sizes, resolution)) {
+      return resolution;
+    }
+  }
+
+  return "400";
+}
+
+function buildProductImageFolder(barcode?: string) {
+  const cleanBarcode = barcode?.replace(/\D/g, "");
+
+  if (!cleanBarcode) {
+    return undefined;
+  }
+
+  const normalizedBarcode = cleanBarcode.length < 13 ? cleanBarcode.padStart(13, "0") : cleanBarcode;
+  const match = normalizedBarcode.match(/^(\d{3})(\d{3})(\d{3})(.*)$/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  return `https://images.openfoodfacts.org/images/products/${match[1]}/${match[2]}/${match[3]}/${match[4]}`;
 }

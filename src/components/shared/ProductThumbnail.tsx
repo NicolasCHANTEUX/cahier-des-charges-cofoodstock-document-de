@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ProductThumbnailProps = {
   name: string;
@@ -17,9 +17,14 @@ export function ProductThumbnail({ name, imageUrl, fallbackLabel, className }: P
     .slice(0, 2)
     .toUpperCase() || "PR";
 
+  useEffect(() => {
+    setHasImageError(false);
+  }, [imageUrl]);
+
   return (
     <div className={className ?? "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-xs font-bold text-slate-600"}>
       {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageUrl}
           alt={name}

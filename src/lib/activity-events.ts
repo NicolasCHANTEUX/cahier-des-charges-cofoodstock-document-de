@@ -1,4 +1,4 @@
-import type { ActivityEvent, ActivityType, BadgeTone } from "@/types/domain";
+import type { ActivityEvent, ActivityType } from "@/types/domain";
 
 export type ActivityEventInsert = {
   household_id: string;

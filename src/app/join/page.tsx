@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
@@ -8,6 +8,14 @@ import { Card } from "@/components/ui/Card";
 import { t } from "@/lib/i18n";
 
 export default function JoinPage() {
+  return (
+    <Suspense fallback={<JoinPageFallback />}>
+      <JoinPageContent />
+    </Suspense>
+  );
+}
+
+function JoinPageContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const router = useRouter();
@@ -60,10 +68,22 @@ export default function JoinPage() {
       <Card className="w-full max-w-lg p-8 text-center">
         <h1 className="text-xl font-bold mb-4">Rattachement au foyer</h1>
         <p className="text-sm text-slate-600 mb-6">{token ? `Token: ${token}` : "Aucun token fourni."}</p>
+        {loading ? <div className="mb-4 text-sm text-slate-500">Verification en cours...</div> : null}
         {status ? <div className="mb-4 text-sm">{status}</div> : null}
         <div className="flex justify-center">
           <Button onClick={() => router.push("/")}>Retour</Button>
         </div>
+      </Card>
+    </main>
+  );
+}
+
+function JoinPageFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-brand-50 px-4">
+      <Card className="w-full max-w-lg p-8 text-center">
+        <h1 className="mb-4 text-xl font-bold">Rattachement au foyer</h1>
+        <p className="text-sm text-slate-600">Chargement...</p>
       </Card>
     </main>
   );

@@ -1,4 +1,4 @@
-const OFF_IMAGE_HOST = "images.openfoodfacts.org";
+const OFF_IMAGE_HOSTS = new Set(["images.openfoodfacts.org", "static.openfoodfacts.org", "images.openfoodfacts.net"]);
 
 export function proxiedOffImageUrl(url?: string | null) {
   if (!url) {
@@ -8,11 +8,12 @@ export function proxiedOffImageUrl(url?: string | null) {
   try {
     const parsed = new URL(url);
 
-    if (parsed.hostname !== OFF_IMAGE_HOST) {
+    if (!OFF_IMAGE_HOSTS.has(parsed.hostname)) {
       return url;
     }
 
-    return `/api/images?src=${encodeURIComponent(url)}`;
+    parsed.protocol = "https:";
+    return `/api/images?src=${encodeURIComponent(parsed.toString())}`;
   } catch {
     return url;
   }

@@ -23,8 +23,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Droits insuffisants" }, { status: 403 });
     }
 
-    const token = (globalThis.crypto && (globalThis.crypto as any).randomUUID)
-      ? (globalThis.crypto as any).randomUUID()
+    const token = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
       : Math.random().toString(36).slice(2) + Date.now().toString(36);
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();

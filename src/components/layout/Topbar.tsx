@@ -17,7 +17,7 @@ export function Topbar() {
         setModeLabel(parsed.appMode === "athlete" ? "Sportif" : "Grand Public");
         return;
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
 

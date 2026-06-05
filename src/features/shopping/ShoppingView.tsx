@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Plus, RotateCcw, ShoppingCart, Trash2, X } from "lucide-react";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,9 @@ import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { ShoppingGroup, ShoppingSuggestion } from "@/types/domain";
 
 const SHOPPING_SUGGESTIONS_STORAGE_KEY = "ecofoodstock:shopping-suggestions-hidden";
+const SHOPPING_ITEM_IMAGES_STORAGE_KEY = "ecofoodstock:shopping-item-images";
+
+type ShoppingItemImageMap = Record<string, string>;
 
 type ShoppingCompletionSession = {
   completedAt: string;
@@ -27,43 +30,24 @@ export function ShoppingView() {
   const [groups, setGroups] = useState<ShoppingGroup[]>([]);
   const [suggestions, setSuggestions] = useState<ShoppingSuggestion[]>([]);
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<string[]>([]);
+  const [shoppingItemImages, setShoppingItemImages] = useState<ShoppingItemImageMap>(() => loadStoredShoppingItemImages());
   const [completedSession, setCompletedSession] = useState<ShoppingCompletionSession | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   const [submittingItem, setSubmittingItem] = useState(false);
+  const [addingSuggestionId, setAddingSuggestionId] = useState<string | null>(null);
   const [completingList, setCompletingList] = useState(false);
   const [shoppingError, setShoppingError] = useState<string | null>(null);
   const [newItemLabel, setNewItemLabel] = useState("");
   const [newItemQuantity, setNewItemQuantity] = useState("1");
+  const shoppingItemImagesRef = useRef(shoppingItemImages);
 
-  useEffect(() => {
-    let storedHiddenIds: string[] = [];
-
-    try {
-      const storedHidden = window.localStorage.getItem(SHOPPING_SUGGESTIONS_STORAGE_KEY);
-      if (storedHidden) {
-        storedHiddenIds = JSON.parse(storedHidden) as string[];
-        setHiddenSuggestionIds(storedHiddenIds);
-      }
-    } catch {
-      setHiddenSuggestionIds([]);
-    }
-
-    void loadShoppingState();
-    void loadSuggestions(storedHiddenIds);
+  const applyShoppingPayload = useCallback((payload: ShoppingPayload, imageMap: ShoppingItemImageMap) => {
+    setGroups(withShoppingImages(payload.groups ?? [], imageMap));
+    setCompletedSession(payload.completedSession ? withCompletedShoppingImages(payload.completedSession, imageMap) : null);
   }, []);
 
-  useEffect(() => {
-    window.localStorage.setItem(SHOPPING_SUGGESTIONS_STORAGE_KEY, JSON.stringify(hiddenSuggestionIds));
-  }, [hiddenSuggestionIds]);
-
-  const totalItems = useMemo(() => groups.reduce((sum, group) => sum + group.items.length, 0), [groups]);
-  const completedItems = useMemo(
-    () => groups.reduce((sum, group) => sum + group.items.filter((item) => item.checked).length, 0),
-    [groups]
-  );
-
-  async function loadShoppingState() {
+  const loadShoppingState = useCallback(async () => {
     setLoadingList(true);
     setShoppingError(null);
 
@@ -79,8 +63,7 @@ export function ShoppingView() {
         throw new Error(payload.message ?? `HTTP ${response.status}`);
       }
 
-      setGroups(payload.groups ?? []);
-      setCompletedSession(payload.completedSession ?? null);
+      applyShoppingPayload(payload, shoppingItemImagesRef.current);
     } catch {
       setShoppingError("Impossible de charger la liste de courses.");
       setGroups([]);
@@ -88,9 +71,9 @@ export function ShoppingView() {
     } finally {
       setLoadingList(false);
     }
-  }
+  }, [applyShoppingPayload]);
 
-  async function loadSuggestions(hiddenIds: string[]) {
+  const loadSuggestions = useCallback(async (hiddenIds: string[]) => {
     try {
       setLoadingSuggestions(true);
 
@@ -109,9 +92,41 @@ export function ShoppingView() {
     } finally {
       setLoadingSuggestions(false);
     }
-  }
+  }, []);
 
-  async function mutateShopping(actionPayload: Record<string, unknown>) {
+  useEffect(() => {
+    let storedHiddenIds: string[] = [];
+
+    try {
+      const storedHidden = window.localStorage.getItem(SHOPPING_SUGGESTIONS_STORAGE_KEY);
+      if (storedHidden) {
+        storedHiddenIds = JSON.parse(storedHidden) as string[];
+        setHiddenSuggestionIds(storedHiddenIds);
+      }
+    } catch {
+      setHiddenSuggestionIds([]);
+    }
+
+    void loadShoppingState();
+    void loadSuggestions(storedHiddenIds);
+  }, [loadShoppingState, loadSuggestions]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SHOPPING_SUGGESTIONS_STORAGE_KEY, JSON.stringify(hiddenSuggestionIds));
+  }, [hiddenSuggestionIds]);
+
+  useEffect(() => {
+    shoppingItemImagesRef.current = shoppingItemImages;
+    window.localStorage.setItem(SHOPPING_ITEM_IMAGES_STORAGE_KEY, JSON.stringify(shoppingItemImages));
+  }, [shoppingItemImages]);
+
+  const totalItems = useMemo(() => groups.reduce((sum, group) => sum + group.items.length, 0), [groups]);
+  const completedItems = useMemo(
+    () => groups.reduce((sum, group) => sum + group.items.filter((item) => item.checked).length, 0),
+    [groups]
+  );
+
+  async function mutateShopping(actionPayload: Record<string, unknown>, imageMap = shoppingItemImages) {
     const response = await fetch("/api/shopping", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
@@ -124,8 +139,7 @@ export function ShoppingView() {
       throw new Error(payload.message ?? `HTTP ${response.status}`);
     }
 
-    setGroups(payload.groups ?? []);
-    setCompletedSession(payload.completedSession ?? null);
+    applyShoppingPayload(payload, imageMap);
   }
 
   async function addManualItem() {
@@ -175,10 +189,56 @@ export function ShoppingView() {
     }
   }
 
-  function addSuggestionToForm(suggestion: ShoppingSuggestion) {
-    setNewItemLabel(suggestion.label);
-    setSuggestions((current) => current.filter((candidate) => candidate.id !== suggestion.id));
-    setHiddenSuggestionIds((current) => (current.includes(suggestion.id) ? current : [...current, suggestion.id]));
+  async function addSuggestionToList(suggestion: ShoppingSuggestion) {
+    const label = suggestion.label.trim();
+
+    if (!label) {
+      return;
+    }
+
+    setAddingSuggestionId(suggestion.id);
+    setShoppingError(null);
+
+    const nextImageMap = rememberSuggestionImage(suggestion);
+
+    try {
+      await mutateShopping(
+        {
+          action: "add_item",
+          label,
+          quantity: 1,
+          unit: "unité",
+          category: "other"
+        },
+        nextImageMap
+      );
+      setSuggestions((current) => current.filter((candidate) => candidate.id !== suggestion.id));
+      setHiddenSuggestionIds((current) => (current.includes(suggestion.id) ? current : [...current, suggestion.id]));
+    } catch {
+      setShoppingError("Impossible d'ajouter cette suggestion.");
+    } finally {
+      setAddingSuggestionId(null);
+    }
+  }
+
+  function rememberSuggestionImage(suggestion: ShoppingSuggestion) {
+    if (!suggestion.imageUrl) {
+      return shoppingItemImages;
+    }
+
+    const key = shoppingItemImageKey(suggestion.label);
+
+    if (!key) {
+      return shoppingItemImages;
+    }
+
+    const nextImageMap = {
+      ...shoppingItemImages,
+      [key]: suggestion.imageUrl
+    };
+
+    setShoppingItemImages(nextImageMap);
+    return nextImageMap;
   }
 
   function hideSuggestion(itemId: string) {
@@ -264,16 +324,16 @@ export function ShoppingView() {
                   <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{group.category}</h3>
                   <div className="space-y-2">
                     {group.items.map((item) => (
-                      <div key={item.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
+                      <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
                         <ProductThumbnail
                           name={item.label}
                           fallbackLabel={item.icon}
                           imageUrl={item.imageUrl}
                           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600"
                         />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-slate-900">{item.label}</p>
-                          <p className="text-xs text-slate-500">{item.quantity}</p>
+                        <div className="min-w-0 flex-1 overflow-hidden">
+                          <p className="truncate text-sm font-medium text-slate-900" title={item.label}>{item.label}</p>
+                          <p className="truncate text-xs text-slate-500">{item.quantity}</p>
                         </div>
                       </div>
                     ))}
@@ -285,8 +345,8 @@ export function ShoppingView() {
         </Card>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card>
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <Card className="min-w-0">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="font-bold">Ma liste</h2>
@@ -302,7 +362,7 @@ export function ShoppingView() {
             </div>
           </div>
 
-          <div className="mb-5 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+          <div className="mb-5 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_140px_auto]">
             <input
               className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 outline-none focus:border-brand-500"
               value={newItemLabel}
@@ -330,9 +390,9 @@ export function ShoppingView() {
                 <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{group.category}</h3>
                 <div className="overflow-hidden rounded-xl border border-slate-200">
                   {group.items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-4 last:border-b-0">
+                    <div key={item.id} className="flex min-w-0 items-center gap-3 border-b border-slate-100 px-3 py-4 last:border-b-0">
                       <input
-                        className="h-5 w-5 rounded border-slate-300"
+                        className="h-5 w-5 shrink-0 rounded border-slate-300"
                         type="checkbox"
                         checked={item.checked ?? false}
                         onChange={() => void toggleChecked(item.id, !(item.checked ?? false))}
@@ -343,13 +403,13 @@ export function ShoppingView() {
                         imageUrl={item.imageUrl}
                         className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-600"
                       />
-                      <div className="min-w-0 flex-1">
-                        <p className={item.checked ? "truncate text-slate-400 line-through" : "truncate"}>{item.label}</p>
-                        <p className="text-sm text-slate-500">{item.quantity}</p>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <p className={item.checked ? "truncate text-slate-400 line-through" : "truncate"} title={item.label}>{item.label}</p>
+                        <p className="truncate text-sm text-slate-500">{item.quantity}</p>
                       </div>
                       <Button
                         variant="ghost"
-                        className="h-8 w-8 px-0 text-slate-400 hover:text-rose-600"
+                        className="h-8 w-8 shrink-0 px-0 text-slate-400 hover:text-rose-600"
                         aria-label={`Supprimer ${item.label}`}
                         onClick={() => void removeItem(item.id)}
                       >
@@ -368,24 +428,24 @@ export function ShoppingView() {
             ) : null}
           </div>
 
-          <div className="sticky bottom-24 mt-6 flex items-center justify-between rounded-xl border border-brand-600 bg-white p-4 shadow-soft lg:bottom-6">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-7 w-7 text-brand-600" />
-              <div>
-                <p className="font-semibold">{totalItems} article{totalItems > 1 ? "s" : ""} dans le panier</p>
-                <p className="text-sm text-slate-500">Prêt à finaliser vos courses ?</p>
+          <div className="sticky bottom-24 mt-6 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-brand-600 bg-white p-4 shadow-soft lg:bottom-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <CheckCircle2 className="h-7 w-7 shrink-0 text-brand-600" />
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{totalItems} article{totalItems > 1 ? "s" : ""} dans le panier</p>
+                <p className="truncate text-sm text-slate-500">Prêt à finaliser vos courses ?</p>
               </div>
             </div>
-            <Button onClick={() => void completeShopping()} disabled={completedItems === 0 || completingList}>
+            <Button className="shrink-0 px-3 sm:px-4" onClick={() => void completeShopping()} disabled={completedItems === 0 || completingList}>
               {completingList ? "En cours..." : "Terminer"}
             </Button>
           </div>
         </Card>
 
-        <Card>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="font-bold">Suggestions Open Food Facts</h2>
-            <div className="flex gap-2">
+        <Card className="min-w-0">
+          <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="truncate font-bold">Suggestions Open Food Facts</h2>
+            <div className="flex shrink-0 gap-2">
               <Button variant="secondary" className="h-9 gap-2 px-3" onClick={resetSuggestions}>
                 <RotateCcw className="h-4 w-4" />
                 Rafraîchir
@@ -401,21 +461,26 @@ export function ShoppingView() {
 
           <div className="space-y-3">
             {suggestions.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
+              <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 p-3">
                 <ProductThumbnail
                   name={item.label}
                   fallbackLabel={item.icon}
                   imageUrl={item.imageUrl}
                   className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-600"
                 />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{item.label}</p>
-                  <p className="text-sm text-slate-500">{item.reason}</p>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <p className="truncate font-medium" title={item.label}>{item.label}</p>
+                  <p className="truncate text-sm text-slate-500">{item.reason}</p>
                 </div>
-                <Button className="h-9 w-9 px-0" aria-label={`Préremplir ${item.label}`} onClick={() => addSuggestionToForm(item)}>
+                <Button
+                  className="h-9 w-9 shrink-0 px-0"
+                  aria-label={`Ajouter ${item.label} à la liste`}
+                  onClick={() => void addSuggestionToList(item)}
+                  disabled={addingSuggestionId === item.id}
+                >
                   <Plus className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" className="h-9 w-9 px-0" aria-label={`Masquer ${item.label}`} onClick={() => hideSuggestion(item.id)}>
+                <Button variant="ghost" className="h-9 w-9 shrink-0 px-0" aria-label={`Masquer ${item.label}`} onClick={() => hideSuggestion(item.id)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -431,4 +496,54 @@ export function ShoppingView() {
       </div>
     </div>
   );
+}
+
+function loadStoredShoppingItemImages(): ShoppingItemImageMap {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const storedImages = window.localStorage.getItem(SHOPPING_ITEM_IMAGES_STORAGE_KEY);
+    if (!storedImages) {
+      return {};
+    }
+
+    const parsed = JSON.parse(storedImages) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string")
+    );
+  } catch {
+    return {};
+  }
+}
+
+function withCompletedShoppingImages(session: ShoppingCompletionSession, imageMap: ShoppingItemImageMap): ShoppingCompletionSession {
+  return {
+    ...session,
+    groups: withShoppingImages(session.groups, imageMap)
+  };
+}
+
+function withShoppingImages(groups: ShoppingGroup[], imageMap: ShoppingItemImageMap): ShoppingGroup[] {
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({
+      ...item,
+      imageUrl: item.imageUrl ?? imageMap[shoppingItemImageKey(item.label)]
+    }))
+  }));
+}
+
+function shoppingItemImageKey(label: string) {
+  return label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }

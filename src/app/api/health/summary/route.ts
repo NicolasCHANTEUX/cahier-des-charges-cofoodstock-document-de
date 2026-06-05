@@ -2,19 +2,66 @@ import { NextResponse } from "next/server";
 import { resolveAccountContext } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-function safeNumber(v: any) {
-  if (v === null || v === undefined) return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+type ProductNutritionRow = {
+  per_unit?: string | null;
+  calories_kcal?: unknown;
+  protein_g?: unknown;
+  carbs_g?: unknown;
+  fat_g?: unknown;
+};
+
+type ProductRow = {
+  id?: string;
+  name?: string | null;
+  is_raw_fresh?: boolean | null;
+  is_seasonal?: boolean | null;
+  category?: string | null;
+  product_nutrition?: ProductNutritionRow[] | ProductNutritionRow | null;
+};
+
+type MovementRow = {
+  quantity_delta?: unknown;
+  products?: ProductRow[] | ProductRow | null;
+};
+
+type BatchRow = {
+  quantity_remaining?: unknown;
+  products?: ProductRow[] | ProductRow | null;
+};
+
+function safeNumber(value: unknown) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
+
+function firstOrSelf<T>(value: T[] | T | null | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeCategory(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+const emptySummary = {
+  macronutrients: { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
+  freshnessRatio: { fresh: 0, processed: 0 },
+  radar: { fruits: 0, vegetables: 0, starches: 0, dairy: 0, proteins: 0 },
+  seasonalityScore: 0
+};
 
 export async function GET(req: Request) {
   let supabase;
 
   try {
     supabase = createSupabaseServerClient();
-  } catch (err) {
-    // Supabase not configured — return a sensible mock
+  } catch {
     return NextResponse.json({
       ok: true,
       macronutrients: { calories: 2100, protein_g: 75, carbs_g: 260, fat_g: 70 },
@@ -26,115 +73,108 @@ export async function GET(req: Request) {
   }
 
   const context = await resolveAccountContext(req, supabase);
-  const householdId = context.householdId || req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID;
+  const householdId =
+    context.householdId ||
+    req.headers.get("x-household-id") ||
+    process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID ||
+    process.env.DEMO_HOUSEHOLD_ID;
 
   if (context.authenticated && !context.householdId) {
-    return NextResponse.json({
-      ok: true,
-      macronutrients: { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
-      freshnessRatio: { fresh: 0, processed: 0 },
-      radar: { fruits: 0, vegetables: 0, starches: 0, dairy: 0, proteins: 0 },
-      seasonalityScore: 0
-    });
+    return NextResponse.json({ ok: true, ...emptySummary });
   }
 
-  // Compute since timestamp for last 7 days
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    // 1) Macronutrients from consumption movements in last 7 days
     const { data: movements } = await supabase
       .from("inventory_movements")
       .select(
-        `product_id,quantity_delta,unit,created_at,products!inner(id,name,is_raw_fresh,is_seasonal,category,product_nutrition(per_unit,calories_kcal,protein_g,carbs_g,fat_g))`
+        "product_id, quantity_delta, unit, created_at, products(id, name, is_raw_fresh, is_seasonal, category, product_nutrition(per_unit, calories_kcal, protein_g, carbs_g, fat_g))"
       )
       .eq("household_id", householdId)
-      .in("type", ["consume", "cook"]) // consider consume/cook as intake
-      .gte("created_at", since)
-      .maybeSingle();
+      .in("type", ["consume", "cook"])
+      .gte("created_at", since);
 
-    // Note: supabase .select with join on products returns an array; handle undefined
     const mac = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+    const movementRows = Array.isArray(movements) ? (movements as unknown as MovementRow[]) : [];
 
-    if (Array.isArray(movements)) {
-      for (const mv of movements) {
-        const qty = safeNumber(mv.quantity_delta);
-        const prod = (mv as any).products ?? null;
-        const pn = prod?.product_nutrition?.[0] ?? null;
+    for (const movement of movementRows) {
+      const quantity = Math.abs(safeNumber(movement.quantity_delta));
+      const product = firstOrSelf(movement.products);
+      const nutrition = firstOrSelf(product?.product_nutrition);
 
-        if (pn) {
-          // Parse per_unit, try to extract numeric base (e.g., '100g')
-          let perUnitValue = 100;
-          try {
-            const match = String(pn.per_unit || "100").match(/(\d+(?:\.\d+)?)/);
-            if (match) perUnitValue = Number(match[1]);
-          } catch (e) {}
-
-          const factor = perUnitValue > 0 ? qty / perUnitValue : 0;
-
-          mac.calories += safeNumber(pn.calories_kcal) * factor;
-          mac.protein_g += safeNumber(pn.protein_g) * factor;
-          mac.carbs_g += safeNumber(pn.carbs_g) * factor;
-          mac.fat_g += safeNumber(pn.fat_g) * factor;
-        }
+      if (!nutrition) {
+        continue;
       }
+
+      const match = String(nutrition.per_unit || "100").match(/(\d+(?:\.\d+)?)/);
+      const perUnitValue = match ? Number(match[1]) : 100;
+      const factor = perUnitValue > 0 ? quantity / perUnitValue : 0;
+
+      mac.calories += safeNumber(nutrition.calories_kcal) * factor;
+      mac.protein_g += safeNumber(nutrition.protein_g) * factor;
+      mac.carbs_g += safeNumber(nutrition.carbs_g) * factor;
+      mac.fat_g += safeNumber(nutrition.fat_g) * factor;
     }
 
-    // 2) Freshness ratio & seasonality & radar using active_inventory_summary
-    const { data: inv } = await supabase
-      .from("active_inventory_summary")
-      .select("product_id,total_quantity_remaining,unit,product_id!inner(products(id,is_raw_fresh,is_seasonal,category,name))")
-      .maybeSingle();
+    const { data: batches } = await supabase
+      .from("inventory_batches")
+      .select("quantity_remaining, products(id, is_raw_fresh, is_seasonal, category, name)")
+      .eq("household_id", householdId)
+      .eq("status", "active");
 
-    // Fallback: if inv is not an array, fetch inventory_batches join products
-    let inventoryRows: any[] = [];
-
-    if (Array.isArray(inv)) {
-      inventoryRows = inv;
-    } else {
-      const { data: batches } = await supabase
-        .from("inventory_batches")
-        .select("quantity_remaining,unit,products(id,is_raw_fresh,is_seasonal,category,name)")
-        .eq("household_id", householdId)
-        .eq("status", "active");
-
-      if (Array.isArray(batches)) {
-        inventoryRows = batches.map((b: any) => ({
-          total_quantity_remaining: b.quantity_remaining,
-          unit: b.unit,
-          products: b.products
-        }));
-      }
-    }
-
+    const inventoryRows = Array.isArray(batches) ? (batches as unknown as BatchRow[]) : [];
     let totalQty = 0;
     let freshQty = 0;
     let seasonalQty = 0;
-    const radarBuckets: Record<string, number> = { fruits: 0, vegetables: 0, starches: 0, dairy: 0, proteins: 0 };
+    const radarBuckets: Record<string, number> = {
+      fruits: 0,
+      vegetables: 0,
+      starches: 0,
+      dairy: 0,
+      proteins: 0
+    };
 
-    for (const row of inventoryRows || []) {
-      const qty = safeNumber(row.total_quantity_remaining ?? row.quantity_remaining ?? 0);
-      const prod = row.products ?? row.product_id ?? null;
+    for (const row of inventoryRows) {
+      const quantity = safeNumber(row.quantity_remaining);
+      const product = firstOrSelf(row.products);
+      const category = normalizeCategory(product?.category);
 
-      totalQty += qty;
+      totalQty += quantity;
 
-      if (prod?.is_raw_fresh) freshQty += qty;
-      if (prod?.is_seasonal) seasonalQty += qty;
+      if (product?.is_raw_fresh) {
+        freshQty += quantity;
+      }
 
-      const cat = (prod?.category || "").toLowerCase();
-      if (cat.includes("fruit")) radarBuckets.fruits += qty;
-      else if (cat.includes("légume") || cat.includes("legume") || cat.includes("veget")) radarBuckets.vegetables += qty;
-      else if (cat.includes("féculent") || cat.includes("feculent") || cat.includes("pâtes") || cat.includes("pates") || cat.includes("riz")) radarBuckets.starches += qty;
-      else if (cat.includes("lait") || cat.includes("yaourt") || cat.includes("fromage")) radarBuckets.dairy += qty;
-      else radarBuckets.proteins += qty;
+      if (product?.is_seasonal) {
+        seasonalQty += quantity;
+      }
+
+      if (category.includes("fruit")) {
+        radarBuckets.fruits += quantity;
+      } else if (category.includes("legume") || category.includes("veget")) {
+        radarBuckets.vegetables += quantity;
+      } else if (category.includes("feculent") || category.includes("pate") || category.includes("riz")) {
+        radarBuckets.starches += quantity;
+      } else if (category.includes("lait") || category.includes("yaourt") || category.includes("fromage")) {
+        radarBuckets.dairy += quantity;
+      } else {
+        radarBuckets.proteins += quantity;
+      }
     }
 
-    const freshnessRatio = totalQty > 0 ? { fresh: Math.round((freshQty / totalQty) * 100), processed: Math.round(((totalQty - freshQty) / totalQty) * 100) } : { fresh: 0, processed: 0 };
+    const freshnessRatio =
+      totalQty > 0
+        ? {
+            fresh: Math.round((freshQty / totalQty) * 100),
+            processed: Math.round(((totalQty - freshQty) / totalQty) * 100)
+          }
+        : { fresh: 0, processed: 0 };
     const seasonalityScore = totalQty > 0 ? Math.round((seasonalQty / totalQty) * 100) : 0;
-
-    // Normalize radar values to 0-100 scale by finding max and scaling
     const maxRadar = Math.max(...Object.values(radarBuckets), 1);
-    const radar = Object.fromEntries(Object.entries(radarBuckets).map(([k, v]) => [k, Math.round((v / maxRadar) * 100)]));
+    const radar = Object.fromEntries(
+      Object.entries(radarBuckets).map(([key, value]) => [key, Math.round((value / maxRadar) * 100)])
+    );
 
     return NextResponse.json({
       ok: true,
@@ -148,8 +188,9 @@ export async function GET(req: Request) {
       radar,
       seasonalityScore
     });
-  } catch (e: any) {
-    console.error("health summary error:", e?.message ?? e);
-    return NextResponse.json({ ok: false, message: e?.message ?? String(e) }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("health summary error:", message);
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }

@@ -367,7 +367,7 @@ export function OnboardingFlow() {
 
               <div className="mt-5 grid gap-4 sm:grid-cols-3">
                 <label className="space-y-2 text-sm">
-                  <span>Âge</span>
+                  <span>Age</span>
                   <input
                     type="number"
                     className="h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4"

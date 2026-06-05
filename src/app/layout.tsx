@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { IosInstallHelper } from "@/components/shared/IosInstallHelper";
+import { PwaInstallPrompt } from "@/components/shared/PwaInstallPrompt";
 import { ServiceWorkerRegister } from "@/components/shared/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
     <html lang="fr">
       <body>
         {children}
+        <PwaInstallPrompt />
         <IosInstallHelper />
         <ServiceWorkerRegister />
       </body>

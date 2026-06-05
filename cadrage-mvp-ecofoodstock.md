@@ -20,7 +20,7 @@ Inclus dans le MVP 1 :
 - Recherche et filtres simples dans l'inventaire
 - Gestion des quantites
 - Liste de courses simple
-- Transfert courses vers inventaire si faisable rapidement
+- Finalisation des courses avec archivage de la liste et trace dans l'historique
 - Historique detaille des actions
 - Annulation des actions principales depuis l'historique
 - Interface mobile-first responsive
@@ -135,7 +135,7 @@ Actions a historiser :
 - Suppression de produit
 - Consommation
 - Produit jete
-- Transfert courses vers inventaire
+- Finalisation des courses
 - Connexion d'un membre au foyer, plus tard
 - Recette cuisinee, plus tard
 - Annulation d'une action
@@ -145,7 +145,7 @@ Actions annulables :
 - Ajout de produit
 - Suppression de produit
 - Consommation
-- Transfert courses vers inventaire
+- Finalisation des courses, si l'action doit etre corrigee
 - Recette cuisinee, en MVP 2
 
 Principe :

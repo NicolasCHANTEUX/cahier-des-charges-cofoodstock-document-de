@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ALLOWED_HOSTS = new Set(["images.openfoodfacts.org"]);
+const ALLOWED_HOSTS = new Set(["images.openfoodfacts.org", "static.openfoodfacts.org", "images.openfoodfacts.net"]);
 
 export async function GET(req: Request) {
   const url = new URL(req.url).searchParams.get("src");
@@ -15,6 +15,8 @@ export async function GET(req: Request) {
     if (!ALLOWED_HOSTS.has(parsed.hostname)) {
       return NextResponse.json({ ok: false, message: "Host not allowed" }, { status: 400 });
     }
+
+    parsed.protocol = "https:";
 
     const response = await fetch(parsed.toString(), {
       headers: {

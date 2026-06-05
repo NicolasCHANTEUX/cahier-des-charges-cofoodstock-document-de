@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { searchOpenFoodFactsProducts } from "@/lib/open-food-facts";
+import { lookupOpenFoodFactsProduct, searchOpenFoodFactsProducts, type OpenFoodFactsLookupResult } from "@/lib/open-food-facts";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +23,19 @@ const curatedQueries = [
   { id: "chicken", queries: ["poulet fermier label rouge", "poulet fermier"], reason: "Plat principal simple" }
 ];
 
+const preferredSuggestionBarcodes: Record<string, string> = {
+  milk: "3428273980046",
+  yogurt: "6111032002925",
+  eggs: "3251320080617",
+  pasta: "8076800195057",
+  rice: "3760341070472",
+  tomatoes: "3276558775128"
+};
+
 export async function GET() {
   const suggestions = await Promise.all(
     curatedQueries.map(async (entry) => {
-      const product = await pickSuggestionProduct(entry.queries);
+      const product = await pickSuggestionProduct(entry);
       const label = product?.name ?? titleCase(entry.queries[0]);
       const icon = createIconLabel(product?.name ?? entry.queries[0]);
 
@@ -43,12 +52,21 @@ export async function GET() {
   return NextResponse.json({ ok: true, suggestions });
 }
 
-async function pickSuggestionProduct(queries: string[]) {
-  let fallbackProduct;
+async function pickSuggestionProduct(entry: (typeof curatedQueries)[number]) {
+  let fallbackProduct: OpenFoodFactsLookupResult | undefined;
+  const preferredBarcode = preferredSuggestionBarcodes[entry.id];
 
-  for (const query of queries) {
-    const results = await searchOpenFoodFactsProducts(query, 100).catch(() => []);
-    const candidateWithImage = results.find((candidate) => Boolean(candidate.imageUrl));
+  if (preferredBarcode) {
+    const preferredProduct = await lookupOpenFoodFactsProduct(preferredBarcode).catch(() => null);
+
+    if (preferredProduct?.imageUrl) {
+      return preferredProduct;
+    }
+  }
+
+  for (const query of entry.queries) {
+    const results = await searchOpenFoodFactsProducts(query, 100, { sortBy: "unique_scans_n" }).catch(() => []);
+    const candidateWithImage = await findCandidateWithImage(results);
 
     if (candidateWithImage) {
       return candidateWithImage;
@@ -59,7 +77,43 @@ async function pickSuggestionProduct(queries: string[]) {
     }
   }
 
+  for (const query of entry.queries) {
+    const imageResults = await searchOpenFoodFactsProducts(query, 100, { image: true, sortBy: "unique_scans_n" }).catch(() => []);
+    const candidateWithImage = await findCandidateWithImage(imageResults);
+
+    if (candidateWithImage) {
+      return candidateWithImage;
+    }
+  }
+
   return fallbackProduct;
+}
+
+async function findCandidateWithImage(results: OpenFoodFactsLookupResult[]) {
+  const directImageCandidate = results.find((candidate) => Boolean(candidate.imageUrl));
+
+  if (directImageCandidate) {
+    return directImageCandidate;
+  }
+
+  for (const candidate of results.slice(0, 8)) {
+    if (!candidate.barcode) {
+      continue;
+    }
+
+    const hydratedCandidate = await lookupOpenFoodFactsProduct(candidate.barcode).catch(() => null);
+
+    if (hydratedCandidate?.imageUrl) {
+      return {
+        ...candidate,
+        ...hydratedCandidate,
+        name: candidate.name || hydratedCandidate.name,
+        storageArea: candidate.storageArea ?? hydratedCandidate.storageArea
+      };
+    }
+  }
+
+  return undefined;
 }
 
 function createIconLabel(name: string) {
