@@ -1,10 +1,5 @@
-import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { LoadingTransition } from "@/components/shared/LoadingTransition";
 
 export default function Loading() {
-  return (
-    <div className="flex min-h-[50vh] items-center justify-center">
-      <LoadingSpinner />
-    </div>
-  );
+  return <LoadingTransition className="rounded-xl" />;
 }
-

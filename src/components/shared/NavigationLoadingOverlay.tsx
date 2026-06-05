@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { LoadingTransition } from "@/components/shared/LoadingTransition";
 
 export const NAVIGATION_LOADING_EVENT = "ecofoodstock:navigation-loading";
 
@@ -51,7 +51,7 @@ export function NavigationLoadingOverlay() {
 
     hideTimerRef.current = setTimeout(() => {
       setVisible(false);
-    }, 180);
+    }, 420);
   }, [pathname, visible]);
 
   if (!visible) {
@@ -59,14 +59,10 @@ export function NavigationLoadingOverlay() {
   }
 
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-white/35 backdrop-blur-[1px]"
+    <LoadingTransition
+      className="pointer-events-none fixed inset-x-0 bottom-20 top-16 z-[15] min-h-0 lg:bottom-0 lg:left-64"
       data-navigation-loading="true"
-    >
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-white/95 shadow-soft">
-        <LoadingSpinner />
-      </div>
-    </div>
+    />
   );
 }
 
