@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { routes } from "@/lib/routes";
+import { startNavigationLoading } from "@/components/shared/NavigationLoadingOverlay";
 
 const navItems = [
   { href: routes.dashboard, label: "Accueil", icon: Home },
@@ -58,6 +59,11 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  if (!active) {
+                    startNavigationLoading();
+                  }
+                }}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-white/90 transition",
                   active && "bg-white/18 text-white",
@@ -74,6 +80,11 @@ export function Sidebar() {
         <div className="space-y-3 p-4">
           <Link
             href={routes.inventory}
+            onClick={() => {
+              if (pathname !== routes.inventory) {
+                startNavigationLoading();
+              }
+            }}
             className="flex items-center justify-center gap-2 rounded-xl bg-white/15 px-4 py-4 text-sm font-semibold hover:bg-white/20"
           >
             <ScanBarcode className="h-5 w-5" />
@@ -81,6 +92,11 @@ export function Sidebar() {
           </Link>
           <Link
             href={routes.inventory}
+            onClick={() => {
+              if (pathname !== routes.inventory) {
+                startNavigationLoading();
+              }
+            }}
             className="flex items-center justify-center gap-2 text-xs text-white/80 hover:text-white"
           >
             <ClipboardList className="h-4 w-4" />
@@ -100,6 +116,11 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  if (!active) {
+                    startNavigationLoading();
+                  }
+                }}
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-[11px] text-slate-500",
                   active && "bg-brand-50 text-brand-700"
