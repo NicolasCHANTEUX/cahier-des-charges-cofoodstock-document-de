@@ -1,7 +1,6 @@
 "use client";
 
-import type { HTMLAttributes } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, HTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 type LoadingTransitionPhase = "loading" | "revealing";
@@ -11,36 +10,23 @@ type LoadingTransitionProps = HTMLAttributes<HTMLDivElement> & {
   phase?: LoadingTransitionPhase;
 };
 
-const stripeCount = 26;
-
-const stripeDelays = [
-  120,
-  20,
-  260,
-  80,
-  340,
-  0,
-  210,
-  150,
-  390,
-  60,
-  300,
-  180,
-  440,
-  100,
-  240,
-  30,
-  360,
-  140,
-  420,
-  70,
-  280,
-  200,
-  470,
-  110,
-  330,
-  50
+const tileCount = 168;
+const tileColors = [
+  "rgba(209, 250, 229, 0.86)",
+  "rgba(187, 247, 208, 0.8)",
+  "rgba(204, 251, 241, 0.82)",
+  "rgba(240, 253, 244, 0.78)",
+  "rgba(254, 243, 199, 0.72)"
 ];
+
+function createTileStyle(index: number) {
+  return {
+    "--tile-color": tileColors[index % tileColors.length],
+    "--tile-enter-delay": `${(index * 23) % 190}ms`,
+    "--tile-reveal-delay": `${(index * 47) % 520}ms`,
+    "--tile-wave-delay": `${(index * 31) % 900}ms`
+  } as CSSProperties;
+}
 
 export function LoadingTransition({ className, fullScreen = false, phase = "loading", ...props }: LoadingTransitionProps) {
   return (
@@ -55,19 +41,16 @@ export function LoadingTransition({ className, fullScreen = false, phase = "load
       aria-label="Chargement"
       {...props}
     >
-      <div className="eco-loading-stripes" aria-hidden="true">
-        {Array.from({ length: stripeCount }, (_, index) => (
-          <span
-            className="eco-loading-stripe"
-            key={index}
-            style={
-              {
-                "--stripe-index": index,
-                "--stripe-delay": `${stripeDelays[index]}ms`
-              } as CSSProperties
-            }
-          />
+      <div className="eco-loading-mosaic" aria-hidden="true">
+        {Array.from({ length: tileCount }, (_, index) => (
+          <span className="eco-loading-tile" key={index} style={createTileStyle(index)} />
         ))}
+      </div>
+      <div className="eco-loading-focus" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
       </div>
     </div>
   );

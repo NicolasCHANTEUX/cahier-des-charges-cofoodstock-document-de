@@ -13,6 +13,7 @@ export function NavigationLoadingOverlay() {
   const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingPathRef = useRef(pathname);
+  const loadingStartedAtRef = useRef(0);
 
   useEffect(() => {
     function showLoading() {
@@ -21,6 +22,7 @@ export function NavigationLoadingOverlay() {
       }
 
       loadingPathRef.current = pathname;
+      loadingStartedAtRef.current = Date.now();
       setPhase("loading");
       setVisible(true);
 
@@ -53,11 +55,16 @@ export function NavigationLoadingOverlay() {
       return;
     }
 
-    setPhase("revealing");
+    const elapsed = Date.now() - loadingStartedAtRef.current;
+    const revealDelay = Math.max(0, 260 - elapsed);
 
     hideTimerRef.current = setTimeout(() => {
-      setVisible(false);
-    }, 980);
+      setPhase("revealing");
+
+      hideTimerRef.current = setTimeout(() => {
+        setVisible(false);
+      }, 1080);
+    }, revealDelay);
   }, [pathname, phase, visible]);
 
   if (!visible) {
