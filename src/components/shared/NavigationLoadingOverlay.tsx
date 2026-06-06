@@ -9,8 +9,10 @@ export const NAVIGATION_LOADING_EVENT = "ecofoodstock:navigation-loading";
 export function NavigationLoadingOverlay() {
   const pathname = usePathname();
   const [visible, setVisible] = useState(false);
+  const [phase, setPhase] = useState<"loading" | "revealing">("loading");
   const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingPathRef = useRef(pathname);
 
   useEffect(() => {
     function showLoading() {
@@ -18,6 +20,8 @@ export function NavigationLoadingOverlay() {
         clearTimeout(hideTimerRef.current);
       }
 
+      loadingPathRef.current = pathname;
+      setPhase("loading");
       setVisible(true);
 
       if (maxTimerRef.current) {
@@ -42,17 +46,19 @@ export function NavigationLoadingOverlay() {
         clearTimeout(hideTimerRef.current);
       }
     };
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
-    if (!visible) {
+    if (!visible || phase === "revealing" || pathname === loadingPathRef.current) {
       return;
     }
 
+    setPhase("revealing");
+
     hideTimerRef.current = setTimeout(() => {
       setVisible(false);
-    }, 420);
-  }, [pathname, visible]);
+    }, 980);
+  }, [pathname, phase, visible]);
 
   if (!visible) {
     return null;
@@ -62,6 +68,7 @@ export function NavigationLoadingOverlay() {
     <LoadingTransition
       className="pointer-events-none fixed inset-x-0 bottom-20 top-16 z-[15] min-h-0 lg:bottom-0 lg:left-64"
       data-navigation-loading="true"
+      phase={phase}
     />
   );
 }
