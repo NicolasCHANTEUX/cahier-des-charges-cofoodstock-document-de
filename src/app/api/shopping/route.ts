@@ -26,6 +26,8 @@ type ShoppingItemRow = {
   status: "active" | "checked" | "archived";
 };
 
+const COMPLETED_SESSION_VISIBLE_MS = 24 * 60 * 60 * 1000;
+
 export async function GET(req: Request) {
   let supabase;
 
@@ -295,7 +297,7 @@ async function loadShoppingState(supabase: ReturnType<typeof createSupabaseServe
     groups: Array<{ category: string; items: Array<{ id: string; label: string; quantity: string; icon: string; checked: boolean }> }>;
   } | null = null;
 
-  if (archivedList?.archived_at) {
+  if (archivedList?.archived_at && isRecentCompletedSession(archivedList.archived_at)) {
     const { data: checkedItems } = await supabase
       .from("shopping_items")
       .select("id, label, quantity, unit, category, status")
@@ -411,6 +413,16 @@ function formatQuantityLabel(quantity: number | null, unit: string | null) {
   const cleanUnit = unit?.trim() || "unité";
   const displayedQuantity = Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/\.?0+$/, "");
   return `${displayedQuantity} ${cleanUnit}`;
+}
+
+function isRecentCompletedSession(archivedAt: string) {
+  const archivedTime = Date.parse(archivedAt);
+
+  if (!Number.isFinite(archivedTime)) {
+    return false;
+  }
+
+  return Date.now() - archivedTime < COMPLETED_SESSION_VISIBLE_MS;
 }
 
 function createIconLabel(name: string) {

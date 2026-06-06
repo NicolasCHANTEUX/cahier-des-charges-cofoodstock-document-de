@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { lookupOpenFoodFactsProduct, searchOpenFoodFactsProducts, type OpenFoodFactsLookupResult } from "@/lib/open-food-facts";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
+import { lookupOpenFoodFactsProduct, searchOpenFoodFactsProducts, type OpenFoodFactsLookupResult } from "@/lib/open-food-facts";
+import { defaultSettingsProfile, type DietType } from "@/lib/settings";
+import { resolveAccountContext } from "@/lib/supabase/account-context";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +15,30 @@ type ShoppingSuggestionResponse = {
   imageUrl?: string;
 };
 
+type CuratedSuggestionEntry = {
+  id: string;
+  queries: string[];
+  reason: string;
+  diets: DietType[];
+};
+
+const allDiets: DietType[] = ["omnivore", "vegetarian", "vegan", "pescatarian"];
+const dairyAndEggDiets: DietType[] = ["omnivore", "vegetarian", "pescatarian"];
+
 const curatedQueries = [
-  { id: "milk", queries: ["lactel", "lait lactel"], reason: "Basique du quotidien" },
-  { id: "yogurt", queries: ["yaourt nature danone", "danone nature"], reason: "Petit-déjeuner rapide" },
-  { id: "eggs", queries: ["oeufs fermiers", "oeufs frais", "oeufs"], reason: "Protéines faciles" },
-  { id: "pasta", queries: ["pates barilla", "barilla spaghetti"], reason: "Repas rapide" },
-  { id: "rice", queries: ["riz basmati", "taureau aile basmati"], reason: "Base polyvalente" },
-  { id: "tomatoes", queries: ["tomates cerise", "tomates cerises"], reason: "Cuisine fraîche" },
-  { id: "bananas", queries: ["bananes", "banane"], reason: "Collation classique" },
-  { id: "chicken", queries: ["poulet fermier label rouge", "poulet fermier"], reason: "Plat principal simple" }
-];
+  { id: "milk", queries: ["lactel", "lait lactel"], reason: "Basique du quotidien", diets: dairyAndEggDiets },
+  { id: "yogurt", queries: ["yaourt nature danone", "danone nature"], reason: "Petit-dejeuner rapide", diets: dairyAndEggDiets },
+  { id: "eggs", queries: ["oeufs fermiers", "oeufs frais", "oeufs"], reason: "Proteines faciles", diets: dairyAndEggDiets },
+  { id: "pasta", queries: ["pates barilla", "barilla spaghetti"], reason: "Repas rapide", diets: allDiets },
+  { id: "rice", queries: ["riz basmati", "taureau aile basmati"], reason: "Base polyvalente", diets: allDiets },
+  { id: "tomatoes", queries: ["tomates cerise", "tomates cerises"], reason: "Cuisine fraiche", diets: allDiets },
+  { id: "bananas", queries: ["bananes", "banane"], reason: "Collation classique", diets: allDiets },
+  { id: "chicken", queries: ["poulet fermier label rouge", "poulet fermier"], reason: "Plat principal simple", diets: ["omnivore"] },
+  { id: "tofu", queries: ["tofu nature", "tofu bio"], reason: "Proteines vegetales", diets: allDiets },
+  { id: "lentils", queries: ["lentilles vertes", "lentilles corail"], reason: "Base vegetale rassasiante", diets: allDiets },
+  { id: "oat_milk", queries: ["boisson avoine", "lait avoine"], reason: "Alternative vegetale", diets: ["vegan"] },
+  { id: "soy_yogurt", queries: ["yaourt soja nature", "dessert soja nature"], reason: "Alternative vegetale", diets: ["vegan"] }
+] satisfies CuratedSuggestionEntry[];
 
 const preferredSuggestionBarcodes: Record<string, string> = {
   milk: "3428273980046",
@@ -32,9 +49,12 @@ const preferredSuggestionBarcodes: Record<string, string> = {
   tomatoes: "3276558775128"
 };
 
-export async function GET() {
+export async function GET(req: Request) {
+  const diet = await resolveSuggestionDiet(req);
+  const compatibleQueries = curatedQueries.filter((entry) => entry.diets.includes(diet)).slice(0, 8);
+
   const suggestions = await Promise.all(
-    curatedQueries.map(async (entry) => {
+    compatibleQueries.map(async (entry) => {
       const product = await pickSuggestionProduct(entry);
       const label = product?.name ?? titleCase(entry.queries[0]);
       const icon = createIconLabel(product?.name ?? entry.queries[0]);
@@ -49,10 +69,41 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({ ok: true, suggestions });
+  return NextResponse.json({ ok: true, diet, suggestions });
 }
 
-async function pickSuggestionProduct(entry: (typeof curatedQueries)[number]) {
+async function resolveSuggestionDiet(req: Request): Promise<DietType> {
+  const requestDiet = new URL(req.url).searchParams.get("diet");
+  if (isDiet(requestDiet)) {
+    return requestDiet;
+  }
+
+  try {
+    const supabase = createSupabaseServerClient();
+    const context = await resolveAccountContext(req, supabase);
+
+    if (!context.appUserId) {
+      return defaultSettingsProfile.diet;
+    }
+
+    const { data } = await supabase
+      .from("user_preferences")
+      .select("diet")
+      .eq("user_id", context.appUserId)
+      .limit(1)
+      .maybeSingle<{ diet: string | null }>();
+
+    return isDiet(data?.diet) ? data.diet : defaultSettingsProfile.diet;
+  } catch {
+    return defaultSettingsProfile.diet;
+  }
+}
+
+function isDiet(value: unknown): value is DietType {
+  return value === "omnivore" || value === "vegetarian" || value === "vegan" || value === "pescatarian";
+}
+
+async function pickSuggestionProduct(entry: CuratedSuggestionEntry) {
   let fallbackProduct: OpenFoodFactsLookupResult | undefined;
   const preferredBarcode = preferredSuggestionBarcodes[entry.id];
 

@@ -7,10 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
+import type { DietType, SettingsProfile } from "@/lib/settings";
 import type { ShoppingGroup, ShoppingSuggestion } from "@/types/domain";
 
+const SETTINGS_STORAGE_KEY = "ecofoodstock:settings-profile";
 const SHOPPING_SUGGESTIONS_STORAGE_KEY = "ecofoodstock:shopping-suggestions-hidden";
 const SHOPPING_ITEM_IMAGES_STORAGE_KEY = "ecofoodstock:shopping-item-images";
+const SHOPPING_COMPLETION_DISMISSALS_STORAGE_KEY = "ecofoodstock:shopping-completion-dismissals";
+const COMPLETED_SESSION_VISIBLE_MS = 24 * 60 * 60 * 1000;
 
 type ShoppingItemImageMap = Record<string, string>;
 
@@ -31,6 +35,7 @@ export function ShoppingView() {
   const [suggestions, setSuggestions] = useState<ShoppingSuggestion[]>([]);
   const [hiddenSuggestionIds, setHiddenSuggestionIds] = useState<string[]>([]);
   const [shoppingItemImages, setShoppingItemImages] = useState<ShoppingItemImageMap>(() => loadStoredShoppingItemImages());
+  const [dismissedCompletionKeys, setDismissedCompletionKeys] = useState<string[]>(() => loadStoredCompletionDismissals());
   const [completedSession, setCompletedSession] = useState<ShoppingCompletionSession | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
@@ -41,10 +46,12 @@ export function ShoppingView() {
   const [newItemLabel, setNewItemLabel] = useState("");
   const [newItemQuantity, setNewItemQuantity] = useState("1");
   const shoppingItemImagesRef = useRef(shoppingItemImages);
+  const dismissedCompletionKeysRef = useRef(dismissedCompletionKeys);
 
   const applyShoppingPayload = useCallback((payload: ShoppingPayload, imageMap: ShoppingItemImageMap) => {
     setGroups(withShoppingImages(payload.groups ?? [], imageMap));
-    setCompletedSession(payload.completedSession ? withCompletedShoppingImages(payload.completedSession, imageMap) : null);
+    const nextCompletedSession = payload.completedSession ? withCompletedShoppingImages(payload.completedSession, imageMap) : null;
+    setCompletedSession(shouldShowCompletedSession(nextCompletedSession, dismissedCompletionKeysRef.current) ? nextCompletedSession : null);
   }, []);
 
   const loadShoppingState = useCallback(async () => {
@@ -76,9 +83,12 @@ export function ShoppingView() {
   const loadSuggestions = useCallback(async (hiddenIds: string[]) => {
     try {
       setLoadingSuggestions(true);
+      const currentDiet = readStoredDiet();
+      const query = currentDiet ? `?diet=${encodeURIComponent(currentDiet)}` : "";
 
-      const response = await fetch("/api/shopping/suggestions", {
-        cache: "no-store"
+      const response = await fetch(`/api/shopping/suggestions${query}`, {
+        cache: "no-store",
+        headers: await getBrowserAuthHeaders()
       });
 
       if (!response.ok) {
@@ -119,6 +129,11 @@ export function ShoppingView() {
     shoppingItemImagesRef.current = shoppingItemImages;
     window.localStorage.setItem(SHOPPING_ITEM_IMAGES_STORAGE_KEY, JSON.stringify(shoppingItemImages));
   }, [shoppingItemImages]);
+
+  useEffect(() => {
+    dismissedCompletionKeysRef.current = dismissedCompletionKeys;
+    window.localStorage.setItem(SHOPPING_COMPLETION_DISMISSALS_STORAGE_KEY, JSON.stringify(dismissedCompletionKeys.slice(-20)));
+  }, [dismissedCompletionKeys]);
 
   const totalItems = useMemo(() => groups.reduce((sum, group) => sum + group.items.length, 0), [groups]);
   const completedItems = useMemo(
@@ -278,6 +293,16 @@ export function ShoppingView() {
     }
   }
 
+  function dismissCompletedSession() {
+    if (!completedSession) {
+      return;
+    }
+
+    const completionKey = completedSessionKey(completedSession);
+    setCompletedSession(null);
+    setDismissedCompletionKeys((current) => (current.includes(completionKey) ? current : [...current, completionKey]));
+  }
+
   async function restoreInitialState() {
     setCompletingList(true);
     setShoppingError(null);
@@ -316,6 +341,14 @@ export function ShoppingView() {
                   Rappel enregistré le {new Date(completedSession.completedAt).toLocaleString("fr-FR")}
                 </p>
               </div>
+              <Button
+                variant="ghost"
+                className="h-9 w-9 shrink-0 px-0 text-slate-500 hover:text-slate-900"
+                aria-label="Masquer le rappel de courses terminees"
+                onClick={dismissCompletedSession}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
 
             <div className="space-y-3 rounded-xl border border-brand-100 bg-white/80 p-4">
@@ -520,6 +553,72 @@ function loadStoredShoppingItemImages(): ShoppingItemImageMap {
   } catch {
     return {};
   }
+}
+
+function loadStoredCompletionDismissals() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const storedDismissals = window.localStorage.getItem(SHOPPING_COMPLETION_DISMISSALS_STORAGE_KEY);
+    if (!storedDismissals) {
+      return [];
+    }
+
+    const parsed = JSON.parse(storedDismissals) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function readStoredDiet(): DietType | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const storedProfile = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!storedProfile) {
+      return null;
+    }
+
+    const parsed = JSON.parse(storedProfile) as Partial<SettingsProfile>;
+    return isDiet(parsed.diet) ? parsed.diet : null;
+  } catch {
+    return null;
+  }
+}
+
+function isDiet(value: unknown): value is DietType {
+  return value === "omnivore" || value === "vegetarian" || value === "vegan" || value === "pescatarian";
+}
+
+function shouldShowCompletedSession(session: ShoppingCompletionSession | null, dismissedKeys: string[]) {
+  if (!session || isCompletedSessionExpired(session)) {
+    return false;
+  }
+
+  return !dismissedKeys.includes(completedSessionKey(session));
+}
+
+function isCompletedSessionExpired(session: ShoppingCompletionSession) {
+  const completedTime = Date.parse(session.completedAt);
+
+  if (!Number.isFinite(completedTime)) {
+    return true;
+  }
+
+  return Date.now() - completedTime >= COMPLETED_SESSION_VISIBLE_MS;
+}
+
+function completedSessionKey(session: ShoppingCompletionSession) {
+  return session.completedAt;
 }
 
 function withCompletedShoppingImages(session: ShoppingCompletionSession, imageMap: ShoppingItemImageMap): ShoppingCompletionSession {
