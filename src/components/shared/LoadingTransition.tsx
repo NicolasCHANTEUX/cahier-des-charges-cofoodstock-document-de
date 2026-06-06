@@ -10,18 +10,10 @@ type LoadingTransitionProps = HTMLAttributes<HTMLDivElement> & {
   phase?: LoadingTransitionPhase;
 };
 
-const tileCount = 168;
-const tileColors = [
-  "rgba(209, 250, 229, 0.86)",
-  "rgba(187, 247, 208, 0.8)",
-  "rgba(204, 251, 241, 0.82)",
-  "rgba(240, 253, 244, 0.78)",
-  "rgba(254, 243, 199, 0.72)"
-];
+const tileCount = 72;
 
 function createTileStyle(index: number) {
   return {
-    "--tile-color": tileColors[index % tileColors.length],
     "--tile-enter-delay": `${(index * 23) % 190}ms`,
     "--tile-reveal-delay": `${(index * 47) % 520}ms`,
     "--tile-wave-delay": `${(index * 31) % 900}ms`

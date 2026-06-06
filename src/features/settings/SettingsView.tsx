@@ -33,69 +33,42 @@ export function SettingsView() {
   const baselineRef = useRef<SettingsProfile>(defaultSettingsProfile);
 
   useEffect(() => {
-    (async () => {
+    let active = true;
+
+    async function hydrateProfile() {
+      let nextStorageKey = buildAccountStorageKey(STORAGE_KEY, null);
+
       try {
         const supabase = createSupabaseBrowserClient();
         const { data } = await supabase.auth.getSession();
-        const userId = data.session?.user?.id ?? "guest";
-        const nextStorageKey = `${STORAGE_KEY}:${userId}`;
-        setStorageKey(nextStorageKey);
-
-        const stored = window.localStorage.getItem(nextStorageKey);
-
-        if (stored) {
-          const parsed = JSON.parse(stored) as SettingsProfile;
-          setProfile(parsed);
-          baselineRef.current = parsed;
-          setAdvancedOpen(parsed.appMode === "athlete");
-        }
+        nextStorageKey = buildAccountStorageKey(STORAGE_KEY, data.session?.user?.id ?? null);
       } catch {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored) as SettingsProfile;
-            setProfile(parsed);
-            baselineRef.current = parsed;
-            setAdvancedOpen(parsed.appMode === "athlete");
-          } catch {
-            setProfile(defaultSettingsProfile);
-            baselineRef.current = defaultSettingsProfile;
-          }
-        }
-      } finally {
-        setLoaded(true);
+        nextStorageKey = STORAGE_KEY;
       }
-    })();
-  }, []);
-  
-  useEffect(() => {
-    const supabase = createSupabaseBrowserClient();
 
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setStorageKey(buildAccountStorageKey(STORAGE_KEY, data.user?.id ?? null));
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!storageKey) return;
-
-    const stored = window.localStorage.getItem(storageKey);
-
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as SettingsProfile;
-        setProfile(parsed);
-        baselineRef.current = parsed;
-        setAdvancedOpen(parsed.appMode === "athlete");
-      } catch {
-        setProfile(defaultSettingsProfile);
-        baselineRef.current = defaultSettingsProfile;
+      if (!active) {
+        return;
       }
+
+      setStorageKey(nextStorageKey);
+
+      const storedProfile = readStoredProfile([nextStorageKey, STORAGE_KEY]);
+
+      if (storedProfile) {
+        setProfile(storedProfile);
+        baselineRef.current = storedProfile;
+        setAdvancedOpen(storedProfile.appMode === "athlete");
+      }
+
+      setLoaded(true);
     }
 
-    setLoaded(true);
-  }, [storageKey]);
+    void hydrateProfile();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const bmi = useMemo(() => calculateBmi(profile), [profile]);
   const maintenanceCalories = useMemo(() => calculateMaintenanceCalories(profile), [profile]);
@@ -676,6 +649,24 @@ function clearEcoFoodStockStorage(storage: Storage) {
   }
 
   keysToDelete.forEach((key) => storage.removeItem(key));
+}
+
+function readStoredProfile(keys: string[]) {
+  for (const key of keys) {
+    const stored = window.localStorage.getItem(key);
+
+    if (!stored) {
+      continue;
+    }
+
+    try {
+      return JSON.parse(stored) as SettingsProfile;
+    } catch {
+      // Ignore stale local settings and keep looking for a usable fallback.
+    }
+  }
+
+  return null;
 }
 
 async function clearCacheStorage() {

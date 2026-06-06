@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { LoadingTransition } from "@/components/shared/LoadingTransition";
 
 export const NAVIGATION_LOADING_EVENT = "ecofoodstock:navigation-loading";
+
+const LoadingTransition = dynamic(
+  () => import("@/components/shared/LoadingTransition").then((mod) => mod.LoadingTransition),
+  { ssr: false }
+);
 
 export function NavigationLoadingOverlay() {
   const pathname = usePathname();

@@ -12,6 +12,7 @@
     "build": "next build",
     "prestart": "node scripts/check-node-version.mjs",
     "start": "next start",
+    "preview:mobile": "next build && next start -H 0.0.0.0",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

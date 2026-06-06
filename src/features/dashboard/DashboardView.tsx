@@ -74,7 +74,30 @@ export function DashboardView() {
 
           {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}
 
-          <div className="space-y-2">
+          <div className="min-h-[296px] space-y-2">
+            {loading && !data
+              ? Array.from({ length: 4 }, (_, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 rounded-lg border border-slate-100 px-4 py-3"
+                    aria-hidden="true"
+                  >
+                    <div className="h-10 w-10 rounded-lg bg-slate-100" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-4 w-3/4 rounded bg-slate-100" />
+                      <div className="h-3 w-1/2 rounded bg-slate-100" />
+                    </div>
+                    <div className="h-6 w-20 rounded-full bg-slate-100" />
+                  </div>
+                ))
+              : null}
+
+            {!loading && inventory.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                Votre inventaire est vide pour le moment.
+              </p>
+            ) : null}
+
             {inventory.slice(0, 8).map((item) => (
               <div
                 key={item.id}
