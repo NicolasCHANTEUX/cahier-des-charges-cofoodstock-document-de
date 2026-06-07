@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, LogOut, RotateCcw, Settings, Target, Trash2, UsersRound } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, LogOut, RotateCcw, Settings, Target, Trash2, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -28,6 +28,7 @@ export function SettingsView() {
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
+  const [exportingData, setExportingData] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [accountActionStatus, setAccountActionStatus] = useState<string | null>(null);
   const baselineRef = useRef<SettingsProfile>(defaultSettingsProfile);
@@ -244,6 +245,45 @@ export function SettingsView() {
     }
   }
 
+  async function exportAccountData() {
+    setExportingData(true);
+    setAccountActionStatus(null);
+
+    try {
+      const headers = await getBrowserAuthHeaders();
+
+      if (!headers.Authorization) {
+        router.replace(routes.login);
+        return;
+      }
+
+      const response = await fetch("/api/account/export", {
+        method: "GET",
+        headers
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Impossible d'exporter les donnees pour le moment.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ecofoodstock-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setAccountActionStatus("Export CSV telecharge.");
+    } catch (error) {
+      setAccountActionStatus((error as Error).message ?? "Impossible d'exporter les donnees pour le moment.");
+    } finally {
+      setExportingData(false);
+    }
+  }
+
   async function deleteAccount() {
     const confirmed = window.confirm(
       "Cette action supprimera definitivement votre compte EcoFoodStock. Si vous etes le seul membre du foyer, les donnees du foyer seront aussi supprimees. Continuer ?"
@@ -253,9 +293,9 @@ export function SettingsView() {
       return;
     }
 
-    const typedConfirmation = window.prompt("Tapez SUPPRIMER pour confirmer la suppression definitive du compte.");
+    const typedConfirmation = window.prompt("Tapez supprimer pour confirmer la suppression definitive du compte.");
 
-    if (typedConfirmation !== "SUPPRIMER") {
+    if (typedConfirmation?.trim().toLocaleLowerCase("fr-FR") !== "supprimer") {
       setAccountActionStatus("Suppression annulee.");
       return;
     }
@@ -612,6 +652,26 @@ export function SettingsView() {
             <h2 className="text-xl font-bold">Legal & securite</h2>
           </div>
 
+          <div className="mb-4 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">Exporter mes donnees</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Telechargez un fichier CSV avec votre profil, vos preferences, votre inventaire, vos courses et votre historique.
+              </p>
+              {accountActionStatus ? <p className="mt-2 text-sm font-medium text-slate-700">{accountActionStatus}</p> : null}
+            </div>
+            <Button
+              variant="secondary"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void exportAccountData()}
+              disabled={exportingData || deletingAccount || signingOut || clearingCache}
+            >
+              <Download className="h-4 w-4" />
+              {exportingData ? "Export..." : "Exporter en CSV"}
+            </Button>
+          </div>
+
           <div className="flex flex-col gap-4 rounded-lg border border-rose-100 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold text-rose-950">Supprimer mon compte definitivement</p>
@@ -625,7 +685,7 @@ export function SettingsView() {
               type="button"
               className="gap-2 sm:shrink-0"
               onClick={() => void deleteAccount()}
-              disabled={deletingAccount || signingOut || clearingCache}
+              disabled={deletingAccount || exportingData || signingOut || clearingCache}
             >
               <Trash2 className="h-4 w-4" />
               {deletingAccount ? "Suppression..." : "Supprimer mon compte"}

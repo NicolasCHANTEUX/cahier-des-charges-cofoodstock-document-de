@@ -24,6 +24,9 @@ create table users (
   display_name text,
   avatar_url text,
   onboarding_completed boolean not null default false,
+  legal_terms_accepted_at timestamptz,
+  legal_terms_version text,
+  privacy_policy_version text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

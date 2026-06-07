@@ -1,13 +1,27 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+const DEFAULT_LEGAL_TERMS_VERSION = "2026-06-07";
+const DEFAULT_PRIVACY_POLICY_VERSION = "2026-06-07";
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email, password, full_name } = body;
+    const {
+      email,
+      password,
+      full_name,
+      acceptedLegalTerms,
+      legalTermsVersion = DEFAULT_LEGAL_TERMS_VERSION,
+      privacyPolicyVersion = DEFAULT_PRIVACY_POLICY_VERSION
+    } = body;
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+    }
+
+    if (acceptedLegalTerms !== true) {
+      return NextResponse.json({ error: "Legal consent required" }, { status: 400 });
     }
 
     const supabase = createSupabaseServerClient();
@@ -18,26 +32,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Server Supabase admin API not available" }, { status: 501 });
     }
 
+    const legalTermsAcceptedAt = new Date().toISOString();
+
     const { data, error } = await adminAuth.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name }
+      user_metadata: {
+        full_name,
+        legal_terms_accepted_at: legalTermsAcceptedAt,
+        legal_terms_version: legalTermsVersion,
+        privacy_policy_version: privacyPolicyVersion
+      }
     });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const { data: appUser, error: appUserError } = await supabase
-      .from("users")
-      .insert({
-        auth_user_id: data.user.id,
-        email,
-        display_name: full_name ?? null
-      })
-      .select("id")
-      .maybeSingle();
+    const { data: appUser, error: appUserError } = await insertAppUser(supabase, {
+      authUserId: data.user.id,
+      email,
+      fullName: full_name,
+      legalTermsAcceptedAt,
+      legalTermsVersion,
+      privacyPolicyVersion
+    });
 
     if (appUserError || !appUser) {
       return NextResponse.json({ error: appUserError?.message ?? "Unable to create app user" }, { status: 500 });
@@ -88,4 +108,54 @@ export async function POST(request: Request) {
   } catch (err: unknown) {
     return NextResponse.json({ error: (err as Error).message ?? "Unexpected error" }, { status: 500 });
   }
+}
+
+async function insertAppUser(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  input: {
+    authUserId: string;
+    email: string;
+    fullName?: string | null;
+    legalTermsAcceptedAt: string;
+    legalTermsVersion: string;
+    privacyPolicyVersion: string;
+  }
+) {
+  const insertPayload = {
+    auth_user_id: input.authUserId,
+    email: input.email,
+    display_name: input.fullName ?? null,
+    legal_terms_accepted_at: input.legalTermsAcceptedAt,
+    legal_terms_version: input.legalTermsVersion,
+    privacy_policy_version: input.privacyPolicyVersion
+  };
+
+  const result = await supabase.from("users").insert(insertPayload).select("id").maybeSingle();
+
+  if (!isMissingLegalConsentColumn(result.error?.message)) {
+    return result;
+  }
+
+  return supabase
+    .from("users")
+    .insert({
+      auth_user_id: input.authUserId,
+      email: input.email,
+      display_name: input.fullName ?? null
+    })
+    .select("id")
+    .maybeSingle();
+}
+
+function isMissingLegalConsentColumn(message?: string | null) {
+  if (!message) {
+    return false;
+  }
+
+  const lowerMessage = message.toLowerCase();
+  return (
+    lowerMessage.includes("legal_terms_accepted_at") ||
+    lowerMessage.includes("legal_terms_version") ||
+    lowerMessage.includes("privacy_policy_version")
+  );
 }
