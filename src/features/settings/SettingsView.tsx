@@ -13,6 +13,7 @@ import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import { buildAccountStorageKey } from "@/lib/account-storage";
 import { routes } from "@/lib/routes";
 import { buildSettingsChangeSummary, calculateBmi, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
+import { applyThemePreference, isThemePreference, THEME_STORAGE_KEY, type ThemePreference } from "@/lib/theme";
 
 const STORAGE_KEY = "ecofoodstock:settings-profile";
 
@@ -41,7 +42,7 @@ const settingsSectionConfigs: Record<SettingsSection, { title: string; descripti
   },
   application: {
     title: "Application",
-    description: "Cache local et donnees temporaires.",
+    description: "Theme, cache local et donnees temporaires.",
     icon: Settings
   }
 };
@@ -59,6 +60,7 @@ export function SettingsView() {
   const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
+  const [themePreference, setThemePreference] = useState<ThemePreference>("system");
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
   const [generatingInvite, setGeneratingInvite] = useState(false);
@@ -91,6 +93,11 @@ export function SettingsView() {
 
       setStorageKey(nextStorageKey);
 
+      const storedThemePreference = window.localStorage.getItem(THEME_STORAGE_KEY);
+      const nextThemePreference = isThemePreference(storedThemePreference) ? storedThemePreference : "system";
+      setThemePreference(nextThemePreference);
+      applyThemePreference(nextThemePreference);
+
       const storedProfile = readStoredProfile([nextStorageKey, STORAGE_KEY]);
 
       if (storedProfile) {
@@ -108,6 +115,19 @@ export function SettingsView() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function syncSystemTheme() {
+      if (themePreference === "system") {
+        applyThemePreference("system");
+      }
+    }
+
+    mediaQuery.addEventListener("change", syncSystemTheme);
+    return () => mediaQuery.removeEventListener("change", syncSystemTheme);
+  }, [themePreference]);
 
   const bmi = useMemo(() => calculateBmi(profile), [profile]);
   const maintenanceCalories = useMemo(() => calculateMaintenanceCalories(profile), [profile]);
@@ -206,6 +226,12 @@ export function SettingsView() {
     if (appMode === "athlete") {
       setAdvancedOpen(true);
     }
+  }
+
+  function updateThemePreference(preference: ThemePreference) {
+    setThemePreference(preference);
+    window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+    applyThemePreference(preference);
   }
 
   async function generateInvite() {
@@ -793,21 +819,51 @@ export function SettingsView() {
 
     if (activeSection === "application") {
       return (
-        <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-slate-950">Vider le cache local</p>
-            <p className="mt-1 text-sm text-slate-600">Nettoyer les donnees temporaires conservees sur cet appareil.</p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-4">
+              <p className="font-semibold text-slate-950">Apparence</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Choisissez un theme clair, sombre, ou suivez le reglage de votre appareil.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+              {[
+                { label: "Clair", value: "light" as const },
+                { label: "Sombre", value: "dark" as const },
+                { label: "Systeme", value: "system" as const }
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`h-10 rounded-lg px-2 text-sm font-semibold transition ${
+                    themePreference === option.value ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                  onClick={() => updateThemePreference(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <Button
-            variant="secondary"
-            type="button"
-            className="gap-2 sm:shrink-0"
-            onClick={() => void clearLocalCache()}
-            disabled={clearingCache || signingOut}
-          >
-            <RotateCcw className="h-4 w-4" />
-            {clearingCache ? "Nettoyage..." : "Vider le cache local"}
-          </Button>
+
+          <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">Vider le cache local</p>
+              <p className="mt-1 text-sm text-slate-600">Nettoyer les donnees temporaires conservees sur cet appareil.</p>
+            </div>
+            <Button
+              variant="secondary"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void clearLocalCache()}
+              disabled={clearingCache || signingOut}
+            >
+              <RotateCcw className="h-4 w-4" />
+              {clearingCache ? "Nettoyage..." : "Vider le cache local"}
+            </Button>
+          </div>
         </div>
       );
     }

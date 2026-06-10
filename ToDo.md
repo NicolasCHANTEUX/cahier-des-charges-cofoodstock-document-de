@@ -281,10 +281,11 @@ Le serveur doit analyser l'inventaire et l'historique, attribuer des points à d
 
 **Criteres d'acceptation :**
 
-* [ ] Ajouter un choix clair : clair, sombre, systeme.
-* [ ] Adapter les couleurs principales : fond, cartes, textes, navigation, formulaires et alertes.
+* [x] Ajouter un choix clair : clair, sombre, systeme.
+* [x] Adapter les couleurs principales : fond, cartes, textes, navigation, formulaires et alertes.
 * [ ] Verifier les contrastes sur mobile et desktop.
-* [ ] Persister le choix dans les parametres utilisateur.
+* [x] Persister le choix localement.
+* [ ] Synchroniser le choix dans le profil utilisateur si necessaire.
 
 ### TICKET UX.2 : Internationalisation francais / anglais
 
