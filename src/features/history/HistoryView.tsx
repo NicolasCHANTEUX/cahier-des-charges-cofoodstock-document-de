@@ -10,10 +10,10 @@ import { groupActivityEvents } from "@/lib/activity-events";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { ActivityEvent } from "@/types/domain";
 
-const filters = ["Tout", "Entrees", "Consommes", "Jetes"];
+const filters = ["Tout", "Entrees", "Consommes", "Jetes", "Parametres"];
 const SETTINGS_STORAGE_KEY = "ecofoodstock:settings-profile";
 
-export function HistoryView() {
+export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +97,7 @@ export function HistoryView() {
 
   return (
     <div>
-      <PageHeader icon={History} title="Historique d'activite" />
+      {!embedded ? <PageHeader icon={History} title="Historique d'activite" /> : null}
 
       {error ? (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -139,8 +139,8 @@ export function HistoryView() {
                     <span className={`h-2.5 w-2.5 rounded-full sm:h-3 sm:w-3 ${event.color}`} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium leading-5 text-slate-900 sm:text-base" title={event.title}>{event.title}</p>
-                      <p className="truncate text-xs leading-4 text-slate-500 sm:text-sm" title={`${event.description} - ${formatActivityTime(event.createdAt)}`}>
-                        {event.description} - {formatActivityTime(event.createdAt)}
+                      <p className="truncate text-xs leading-4 text-slate-500 sm:text-sm" title={`${event.description} - ${formatActivityDateTime(event.createdAt)}`}>
+                        {event.description} - {formatActivityDateTime(event.createdAt)}
                       </p>
                     </div>
                     {event.canUndo ? (
@@ -165,27 +165,36 @@ export function HistoryView() {
 }
 
 function matchesActivityFilter(event: ActivityEvent, filter: string) {
+  const isSettingsEvent = event.metadata?.section === "settings";
+
   if (filter === "Tout") {
     return true;
   }
 
   if (filter === "Entrees") {
-    return event.type === "product_added";
+    return event.type === "product_added" && !isSettingsEvent;
   }
 
   if (filter === "Consommes") {
-    return event.type === "product_consumed" || event.type === "product_adjusted";
+    return (event.type === "product_consumed" || event.type === "product_adjusted") && !isSettingsEvent;
   }
 
   if (filter === "Jetes") {
-    return event.type === "product_wasted";
+    return event.type === "product_wasted" && !isSettingsEvent;
+  }
+
+  if (filter === "Parametres") {
+    return isSettingsEvent;
   }
 
   return true;
 }
 
-function formatActivityTime(value: string) {
+function formatActivityDateTime(value: string) {
   return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));

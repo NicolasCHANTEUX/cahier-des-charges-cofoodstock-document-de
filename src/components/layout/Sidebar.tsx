@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   Box,
   ClipboardList,
-  History,
   Home,
   ScanBarcode,
   Settings,
@@ -18,7 +17,6 @@ import { startNavigationLoading } from "@/components/shared/NavigationLoadingOve
 const navItems = [
   { href: routes.dashboard, label: "Accueil", icon: Home },
   { href: routes.inventory, label: "Inventaire", icon: Box },
-  { href: routes.history, label: "Historique", icon: History },
   { href: routes.shopping, label: "Courses", icon: ShoppingCart },
   { href: routes.settings, label: "Parametres", icon: Settings }
 ];
@@ -27,7 +25,6 @@ const mobileRouteHrefs = new Set<string>([
   routes.dashboard,
   routes.inventory,
   routes.shopping,
-  routes.history,
   routes.settings
 ]);
 
@@ -105,7 +102,7 @@ export function Sidebar() {
         </div>
       </aside>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white px-2 py-2 shadow-soft lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white px-2 py-2 shadow-soft lg:hidden">
         {navItems
           .filter((item) => mobileRouteHrefs.has(item.href))
           .map((item) => {

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Download, LogOut, RotateCcw, Settings, Target, Trash2, UsersRound } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, ChevronUp, Download, History, KeyRound, LogOut, RotateCcw, Settings, Target, Trash2, UsersRound, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { HistoryView } from "@/features/history/HistoryView";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { clearBrowserAccountStatusCache } from "@/lib/supabase/browser-account";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
@@ -15,13 +16,49 @@ import { buildSettingsChangeSummary, calculateBmi, calculateMaintenanceCalories,
 
 const STORAGE_KEY = "ecofoodstock:settings-profile";
 
+type SettingsSection = "household" | "personal" | "history" | "account" | "application";
+
+const settingsSectionConfigs: Record<SettingsSection, { title: string; description: string; icon: LucideIcon }> = {
+  household: {
+    title: "Mon profil & foyer",
+    description: "Mode, regime, taille du foyer et invitations.",
+    icon: UsersRound
+  },
+  personal: {
+    title: "Infos perso & objectifs",
+    description: "Age, poids, taille et objectifs nutritionnels.",
+    icon: Target
+  },
+  history: {
+    title: "Historique",
+    description: "Actions du stock, des courses et des parametres.",
+    icon: History
+  },
+  account: {
+    title: "Compte & securite",
+    description: "Mot de passe, export, deconnexion et suppression.",
+    icon: KeyRound
+  },
+  application: {
+    title: "Application",
+    description: "Cache local et donnees temporaires.",
+    icon: Settings
+  }
+};
+
 export function SettingsView() {
   const router = useRouter();
   const [profile, setProfile] = useState<SettingsProfile>(defaultSettingsProfile);
+  const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null);
   const [generatingInvite, setGeneratingInvite] = useState(false);
@@ -43,6 +80,7 @@ export function SettingsView() {
         const supabase = createSupabaseBrowserClient();
         const { data } = await supabase.auth.getSession();
         nextStorageKey = buildAccountStorageKey(STORAGE_KEY, data.session?.user?.id ?? null);
+        setAccountEmail(data.session?.user?.email ?? null);
       } catch {
         nextStorageKey = STORAGE_KEY;
       }
@@ -75,6 +113,7 @@ export function SettingsView() {
   const maintenanceCalories = useMemo(() => calculateMaintenanceCalories(profile), [profile]);
   const targetCalories = useMemo(() => calculateTargetCalories(profile), [profile]);
   const showAdvanced = profile.appMode === "athlete" || advancedOpen;
+  const activeSectionConfig = activeSection ? settingsSectionConfigs[activeSection] : null;
 
   async function saveSettings() {
     setSaving(true);
@@ -82,10 +121,11 @@ export function SettingsView() {
 
     try {
       persistProfileLocally(profile);
+      const authHeaders = await getBrowserAuthHeaders();
 
       const settingsResponse = await fetch("/api/settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify(profile)
       });
 
@@ -96,9 +136,9 @@ export function SettingsView() {
       const changes = buildSettingsChangeSummary(baselineRef.current, profile);
 
       if (changes !== "Aucune modification") {
-        await fetch("/api/history", {
+        const historyResponse = await fetch("/api/history", {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...(await getBrowserAuthHeaders()) },
+          headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({
             type: "product_adjusted",
             title: "Paramètres mis à jour",
@@ -111,6 +151,14 @@ export function SettingsView() {
             }
           })
         });
+
+        baselineRef.current = profile;
+        setStatus(
+          historyResponse.ok
+            ? "Parametres enregistres et ajoutes a l'historique."
+            : "Parametres enregistres, mais l'historique n'a pas pu etre mis a jour."
+        );
+        return;
       }
 
       baselineRef.current = profile;
@@ -341,6 +389,432 @@ export function SettingsView() {
     }
   }
 
+  async function updatePassword() {
+    setPasswordStatus(null);
+
+    if (newPassword.length < 8) {
+      setPasswordStatus("Le nouveau mot de passe doit contenir au moins 8 caracteres.");
+      return;
+    }
+
+    if (newPassword !== newPasswordConfirmation) {
+      setPasswordStatus("Les deux mots de passe ne correspondent pas.");
+      return;
+    }
+
+    setChangingPassword(true);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+
+      if (!data.session) {
+        router.replace(routes.login);
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+      if (error) {
+        throw error;
+      }
+
+      setNewPassword("");
+      setNewPasswordConfirmation("");
+      setPasswordStatus("Mot de passe mis a jour.");
+    } catch (error) {
+      setPasswordStatus((error as Error).message ?? "Impossible de modifier le mot de passe pour le moment.");
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
+  function renderActiveSection() {
+    if (activeSection === "household") {
+      return (
+        <div className="space-y-6">
+          <div>
+            <p className="mb-2 text-sm font-medium">Taille du foyer</p>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((size) => (
+                <button
+                  key={size}
+                  className={`h-11 w-11 rounded-lg border font-semibold transition ${
+                    profile.householdSize === size ? "border-brand-600 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                  type="button"
+                  onClick={() => updateProfile("householdSize", size)}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">Regime alimentaire</p>
+            <div className="grid gap-2 sm:grid-cols-4">
+              {[
+                { label: "Omnivore", value: "omnivore" as const },
+                { label: "Vegetarien", value: "vegetarian" as const },
+                { label: "Vegan", value: "vegan" as const },
+                { label: "Pescetarien", value: "pescatarian" as const }
+              ].map((diet) => (
+                <button
+                  key={diet.value}
+                  className={`rounded-lg border px-3 py-3 text-sm transition ${
+                    profile.diet === diet.value ? "border-brand-600 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                  type="button"
+                  onClick={() => updateProfile("diet", diet.value)}
+                >
+                  {diet.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">Mode actuel</p>
+              <p className="text-sm text-slate-500">
+                {profile.appMode === "athlete" ? "Sportif / Macros" : "Grand public"}
+              </p>
+            </div>
+            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => updateMode("general_public")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  profile.appMode === "general_public" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                Grand public
+              </button>
+              <button
+                type="button"
+                onClick={() => updateMode("athlete")}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  profile.appMode === "athlete" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                Sportif / macros
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-5">
+            <p className="font-semibold">Invitations</p>
+            <p className="mt-1 text-sm text-slate-600">Invitez des membres dans votre foyer en generant un lien.</p>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button onClick={() => void generateInvite()} disabled={generatingInvite}>
+                {generatingInvite ? "Generation..." : "Generer une invitation"}
+              </Button>
+
+              {inviteToken ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <input
+                    readOnly
+                    className="h-11 min-w-0 flex-1 rounded-lg border px-3"
+                    value={`${typeof window !== "undefined" ? window.location.origin : ""}/join?token=${inviteToken}`}
+                  />
+                  <Button variant="secondary" onClick={copyInvite}>
+                    Copier
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            {inviteExpiresAt ? <p className="mt-2 text-xs text-slate-500">Expire le {new Date(inviteExpiresAt).toLocaleString()}</p> : null}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSection === "personal") {
+      return (
+        <div>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <label className="space-y-2 text-sm">
+              <span>Age</span>
+              <input
+                type="number"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
+                value={profile.age}
+                onChange={(event) => updateProfile("age", Number(event.target.value) || 0)}
+              />
+            </label>
+            <label className="space-y-2 text-sm">
+              <span>Poids (kg)</span>
+              <input
+                type="number"
+                step="0.1"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
+                value={profile.weightKg}
+                onChange={(event) => updateProfile("weightKg", Number(event.target.value) || 0)}
+              />
+            </label>
+            <label className="space-y-2 text-sm">
+              <span>Taille (cm)</span>
+              <input
+                type="number"
+                step="0.1"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
+                value={profile.heightCm}
+                onChange={(event) => updateProfile("heightCm", Number(event.target.value) || 0)}
+              />
+            </label>
+            <label className="space-y-2 text-sm">
+              <span>Sexe</span>
+              <select
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
+                value={profile.sex}
+                onChange={(event) => updateProfile("sex", event.target.value as SettingsProfile["sex"])}
+              >
+                <option value="male">Homme</option>
+                <option value="female">Femme</option>
+                <option value="other">Autre</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">IMC</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{formatBmi(bmi)}</p>
+              <p className="mt-1 text-sm text-slate-500">{getBmiLabel(bmi)}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Besoin calorique</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{formatCalories(maintenanceCalories)}</p>
+              <p className="mt-1 text-sm text-slate-500">Base quotidienne estimee</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Objectif quotidien</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{formatCalories(targetCalories)}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {getGoalLabel(profile.goal)} {profile.dailyCaloriesAdjustment > 0 ? `(+${profile.dailyCaloriesAdjustment})` : `(${profile.dailyCaloriesAdjustment})`}
+              </p>
+            </div>
+          </div>
+
+          {showAdvanced ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">Options avancees</p>
+                  <p className="text-sm text-slate-500">Reglages utiles si vous voulez suivre un objectif sportif.</p>
+                </div>
+                {profile.appMode !== "athlete" ? (
+                  <Button variant="secondary" type="button" className="gap-2" onClick={() => setAdvancedOpen(false)}>
+                    <ChevronUp className="h-4 w-4" />
+                    Masquer
+                  </Button>
+                ) : (
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                    Actif en mode sportif
+                  </span>
+                )}
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2 text-sm">
+                  <span>Objectif</span>
+                  <select
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3"
+                    value={profile.goal}
+                    onChange={(event) => updateGoal(event.target.value as SettingsProfile["goal"])}
+                  >
+                    <option value="mass_gain">Prise de masse</option>
+                    <option value="cut">Seche</option>
+                    <option value="maintenance">Maintien normal</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2 text-sm">
+                  <span>Calories supplementaires quotidiennes</span>
+                  <input
+                    type="number"
+                    step="25"
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    value={profile.goal === "maintenance" ? 0 : profile.dailyCaloriesAdjustment}
+                    disabled={profile.goal === "maintenance"}
+                    onChange={(event) => updateProfile("dailyCaloriesAdjustment", Number(event.target.value) || 0)}
+                  />
+                </label>
+              </div>
+
+              <p className="mt-3 text-sm text-slate-500">
+                {profile.goal === "mass_gain"
+                  ? "Par defaut, la prise de masse ajoute 300 kcal par jour."
+                  : profile.goal === "cut"
+                    ? "Par defaut, la seche retire 200 kcal par jour."
+                    : "Le maintien normal laisse l'ajustement a 0 kcal."}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4">
+              <div>
+                <p className="font-semibold">Options avancees</p>
+                <p className="text-sm text-slate-500">
+                  Objectif et ajustement calorique visibles uniquement en mode sportif ou via cette option.
+                </p>
+              </div>
+              <Button variant="secondary" type="button" className="gap-2" onClick={() => setAdvancedOpen(true)}>
+                <ChevronDown className="h-4 w-4" />
+                Afficher
+              </Button>
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              {status ?? "Les parametres sont enregistres localement et chaque sauvegarde est ajoutee a l'historique."}
+            </p>
+            <Button type="button" onClick={() => void saveSettings()} disabled={saving}>
+              {saving ? "Enregistrement..." : "Enregistrer les parametres"}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSection === "history") {
+      return <HistoryView embedded />;
+    }
+
+    if (activeSection === "account") {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-start gap-3">
+              <KeyRound className="mt-0.5 h-5 w-5 text-brand-700" />
+              <div>
+                <p className="font-semibold text-slate-950">Modifier le mot de passe</p>
+                {accountEmail ? <p className="mt-1 text-sm text-slate-600">{accountEmail}</p> : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-2 text-sm">
+                <span>Nouveau mot de passe</span>
+                <input
+                  type="password"
+                  className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+              </label>
+              <label className="space-y-2 text-sm">
+                <span>Confirmer le mot de passe</span>
+                <input
+                  type="password"
+                  className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                  value={newPasswordConfirmation}
+                  onChange={(event) => setNewPasswordConfirmation(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {passwordStatus ? <p className="text-sm font-medium text-slate-700">{passwordStatus}</p> : <span />}
+              <Button
+                type="button"
+                className="gap-2 sm:shrink-0"
+                onClick={() => void updatePassword()}
+                disabled={changingPassword}
+              >
+                <KeyRound className="h-4 w-4" />
+                {changingPassword ? "Mise a jour..." : "Mettre a jour"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">Exporter mes donnees</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Telechargez un fichier CSV avec votre profil, vos preferences, votre inventaire, vos courses et votre historique.
+              </p>
+              {accountActionStatus ? <p className="mt-2 text-sm font-medium text-slate-700">{accountActionStatus}</p> : null}
+            </div>
+            <Button
+              variant="secondary"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void exportAccountData()}
+              disabled={exportingData || deletingAccount || signingOut || clearingCache}
+            >
+              <Download className="h-4 w-4" />
+              {exportingData ? "Export..." : "Exporter en CSV"}
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">Se deconnecter</p>
+              <p className="mt-1 text-sm text-slate-600">Fermer la session sur cet appareil.</p>
+            </div>
+            <Button
+              variant="secondary"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void signOut()}
+              disabled={signingOut || clearingCache || deletingAccount || exportingData}
+            >
+              <LogOut className="h-4 w-4" />
+              {signingOut ? "Deconnexion..." : "Se deconnecter"}
+            </Button>
+          </div>
+
+          <div className="flex flex-col gap-4 rounded-lg border border-rose-100 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-rose-950">Supprimer mon compte definitivement</p>
+              <p className="mt-1 text-sm text-rose-800">
+                Cette action supprime votre compte, vos donnees personnelles et votre foyer si vous en etes le seul membre.
+              </p>
+              {accountActionStatus ? <p className="mt-2 text-sm font-medium text-rose-800">{accountActionStatus}</p> : null}
+            </div>
+            <Button
+              variant="danger"
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => void deleteAccount()}
+              disabled={deletingAccount || exportingData || signingOut || clearingCache}
+            >
+              <Trash2 className="h-4 w-4" />
+              {deletingAccount ? "Suppression..." : "Supprimer mon compte"}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSection === "application") {
+      return (
+        <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-slate-950">Vider le cache local</p>
+            <p className="mt-1 text-sm text-slate-600">Nettoyer les donnees temporaires conservees sur cet appareil.</p>
+          </div>
+          <Button
+            variant="secondary"
+            type="button"
+            className="gap-2 sm:shrink-0"
+            onClick={() => void clearLocalCache()}
+            disabled={clearingCache || signingOut}
+          >
+            <RotateCcw className="h-4 w-4" />
+            {clearingCache ? "Nettoyage..." : "Vider le cache local"}
+          </Button>
+        </div>
+      );
+    }
+
+    return null;
+  }
+
   if (!loaded) {
     return (
       <div>
@@ -354,13 +828,26 @@ export function SettingsView() {
     <div>
       <PageHeader icon={Settings} title="Parametres" />
 
-      <div className="space-y-5">
-        <Card>
-          <div className="mb-5 flex items-center gap-3">
-            <UsersRound className="h-5 w-5 text-brand-600" />
-            <h2 className="text-xl font-bold">Mon profil & foyer</h2>
-          </div>
+      {status ? (
+        <div className="mb-4 rounded-lg border border-brand-100 bg-brand-50 px-4 py-3 text-sm font-medium text-brand-800">
+          {status}
+        </div>
+      ) : null}
 
+      <div className="overflow-hidden">
+        <div
+          className={`flex w-[200%] transition-transform duration-300 ease-out ${
+            activeSection ? "-translate-x-1/2" : "translate-x-0"
+          }`}
+        >
+          <div className="w-1/2 shrink-0 space-y-3">
+        <SettingsCategory
+          title="Mon profil & foyer"
+          description="Mode, regime, taille du foyer et invitations."
+          icon={UsersRound}
+          open={activeSection === "household"}
+          onToggle={() => setActiveSection("household")}
+        >
           <div className="space-y-5">
             <div>
               <p className="mb-2 text-sm font-medium">Taille du foyer</p>
@@ -432,9 +919,8 @@ export function SettingsView() {
               </div>
             </div>
           </div>
-        </Card>
 
-          <Card>
+          <div className="mt-6 border-t border-slate-100 pt-5">
             <div className="mb-5 flex items-center gap-3">
               <UsersRound className="h-5 w-5 text-green-600" />
               <h2 className="text-xl font-bold">Invitations</h2>
@@ -464,14 +950,16 @@ export function SettingsView() {
 
               {inviteExpiresAt ? <p className="text-xs text-slate-500">Expire le {new Date(inviteExpiresAt).toLocaleString()}</p> : null}
             </div>
-          </Card>
-
-        <Card>
-          <div className="mb-5 flex items-center gap-3">
-            <Settings className="h-5 w-5 text-slate-600" />
-            <h2 className="text-xl font-bold">Session & developpement</h2>
           </div>
+        </SettingsCategory>
 
+        <SettingsCategory
+          title="Application"
+          description="Cache local et donnees temporaires."
+          icon={Settings}
+          open={activeSection === "application"}
+          onToggle={() => setActiveSection("application")}
+        >
           <div className="grid gap-3 sm:grid-cols-2">
             <Button
               variant="secondary"
@@ -495,20 +983,21 @@ export function SettingsView() {
               {signingOut ? "Deconnexion..." : "Se deconnecter"}
             </Button>
           </div>
-        </Card>
+        </SettingsCategory>
 
-        <Card>
-          <div className="mb-5 flex items-center gap-3">
-            <Target className="h-5 w-5 text-blue-600" />
-            <h2 className="text-xl font-bold">Objectifs & donnees physiques</h2>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SettingsCategory
+          title="Infos perso & objectifs"
+          description="Age, poids, taille, calculs nutritionnels et objectif sportif."
+          icon={Target}
+          open={activeSection === "personal"}
+          onToggle={() => setActiveSection("personal")}
+        >
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <label className="space-y-2 text-sm">
               <span>Age</span>
               <input
                 type="number"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
                 value={profile.age}
                 onChange={(event) => updateProfile("age", Number(event.target.value) || 0)}
               />
@@ -518,7 +1007,7 @@ export function SettingsView() {
               <input
                 type="number"
                 step="0.1"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
                 value={profile.weightKg}
                 onChange={(event) => updateProfile("weightKg", Number(event.target.value) || 0)}
               />
@@ -528,7 +1017,7 @@ export function SettingsView() {
               <input
                 type="number"
                 step="0.1"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
                 value={profile.heightCm}
                 onChange={(event) => updateProfile("heightCm", Number(event.target.value) || 0)}
               />
@@ -536,7 +1025,7 @@ export function SettingsView() {
             <label className="space-y-2 text-sm">
               <span>Sexe</span>
               <select
-                className="h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3"
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3"
                 value={profile.sex}
                 onChange={(event) => updateProfile("sex", event.target.value as SettingsProfile["sex"])}
               >
@@ -644,14 +1133,40 @@ export function SettingsView() {
               {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
             </Button>
           </div>
-        </Card>
+        </SettingsCategory>
 
-        <Card>
-          <div className="mb-5 flex items-center gap-3">
-            <Trash2 className="h-5 w-5 text-rose-600" />
-            <h2 className="text-xl font-bold">Legal & securite</h2>
+        <SettingsCategory
+          title="Historique"
+          description="Consulter les actions du stock, des courses et des parametres."
+          icon={History}
+          open={activeSection === "history"}
+          onToggle={() => setActiveSection("history")}
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">Historique d'activite</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Les modifications de parametres enregistrees apparaissent ici avec les autres actions.
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="gap-2 sm:shrink-0"
+              onClick={() => router.push(routes.history)}
+            >
+              <History className="h-4 w-4" />
+              Ouvrir l'historique
+            </Button>
           </div>
+        </SettingsCategory>
 
+        <SettingsCategory
+          title="Compte & securite"
+          description="Mot de passe, export, deconnexion et suppression."
+          icon={KeyRound}
+          open={activeSection === "account"}
+          onToggle={() => setActiveSection("account")}
+        >
           <div className="mb-4 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold text-slate-950">Exporter mes donnees</p>
@@ -691,9 +1206,102 @@ export function SettingsView() {
               {deletingAccount ? "Suppression..." : "Supprimer mon compte"}
             </Button>
           </div>
-        </Card>
+        </SettingsCategory>
+          </div>
+
+          <div className="w-1/2 shrink-0">
+            {activeSectionConfig ? (
+              <SettingsDetailShell
+                description={activeSectionConfig.description}
+                icon={activeSectionConfig.icon}
+                title={activeSectionConfig.title}
+                onBack={() => setActiveSection(null)}
+              >
+                {renderActiveSection()}
+              </SettingsDetailShell>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
+
+function SettingsCategory({
+  description,
+  icon: Icon,
+  onToggle,
+  open,
+  title
+}: {
+  children?: ReactNode;
+  description: string;
+  icon: LucideIcon;
+  onToggle: () => void;
+  open: boolean;
+  title: string;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-slate-50 sm:px-5"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+            <Icon className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate font-semibold text-slate-950">{title}</span>
+            <span className="mt-0.5 block text-sm text-slate-500">{description}</span>
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+      </button>
+    </section>
+  );
+}
+
+function SettingsDetailShell({
+  children,
+  description,
+  icon: Icon,
+  onBack,
+  title
+}: {
+  children: ReactNode;
+  description: string;
+  icon: LucideIcon;
+  onBack: () => void;
+  title: string;
+}) {
+  return (
+    <section className="min-h-[520px] rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-5 flex items-start gap-3">
+        <Button
+          variant="ghost"
+          type="button"
+          className="h-10 w-10 shrink-0 px-0"
+          aria-label="Revenir aux parametres"
+          onClick={onBack}
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700 sm:flex">
+            <Icon className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-bold text-slate-950">{title}</h2>
+            <p className="mt-1 text-sm text-slate-500">{description}</p>
+          </div>
+        </div>
+      </div>
+
+      {children}
+    </section>
   );
 }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canUseDemoMode, isProductionEnvironment, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
+import { canUseDemoMode, ensureUserHousehold, isProductionEnvironment, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
 import { mapActivityEventRow } from "@/lib/activity-events";
 import { buildActivityEventInsert } from "@/lib/activity-events";
 import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
@@ -35,7 +35,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
   }
 
-  if (!householdId && canUseDemoMode()) {
+  if (context.authenticated) {
+    try {
+      householdId = await ensureUserHousehold(supabase, context);
+    } catch (error) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  } else if (!householdId && canUseDemoMode()) {
     try {
       householdId = await ensureDemoHousehold(supabase);
     } catch {
@@ -90,7 +96,13 @@ export async function POST(req: Request) {
 
   let householdId = context.householdId;
 
-  if (!householdId && canUseDemoMode()) {
+  if (context.authenticated) {
+    try {
+      householdId = await ensureUserHousehold(supabase, context);
+    } catch (error) {
+      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  } else if (!householdId && canUseDemoMode()) {
     try {
       householdId = await ensureDemoHousehold(supabase);
     } catch (error) {

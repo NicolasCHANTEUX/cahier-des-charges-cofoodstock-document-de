@@ -266,3 +266,35 @@ Le serveur doit analyser l'inventaire et l'historique, attribuer des points à d
 * [ ] Au clic sur le bouton d'une offre :
 * Le texte du code promo (ex: `ECOFOOD15`) est copié silencieusement dans le presse-papier de l'OS (`navigator.clipboard.writeText`).
 * L'utilisateur est redirigé dans un nouvel onglet vers l'URL d'affiliation du partenaire.
+ 
+---
+
+## EPIC UX : EXPERIENCE VISUELLE & ACCESSIBILITE
+
+*Ameliorer l'identite visuelle, le confort d'utilisation et la preparation a une ouverture plus large apres le MVP 1.*
+
+### TICKET UX.1 : Mode sombre configurable
+
+**Priorite :** MVP 2, sauf si la refonte visuelle MVP 1 est terminee plus tot.
+
+**Objectif :** Permettre a l'utilisateur d'activer un theme sombre depuis Parametres > Application, avec memorisation locale puis synchronisation profil plus tard.
+
+**Criteres d'acceptation :**
+
+* [ ] Ajouter un choix clair : clair, sombre, systeme.
+* [ ] Adapter les couleurs principales : fond, cartes, textes, navigation, formulaires et alertes.
+* [ ] Verifier les contrastes sur mobile et desktop.
+* [ ] Persister le choix dans les parametres utilisateur.
+
+### TICKET UX.2 : Internationalisation francais / anglais
+
+**Priorite :** MVP 2.
+
+**Objectif :** Preparer l'application a un mode anglais sans disperser les textes dans les composants.
+
+**Criteres d'acceptation :**
+
+* [ ] Centraliser les libelles d'interface dans un systeme i18n.
+* [ ] Ajouter un choix de langue dans Parametres > Application.
+* [ ] Traduire les parcours principaux : navigation, auth, onboarding, inventaire, courses, historique, parametres.
+* [ ] Garder le francais comme langue par defaut pour le MVP 1.
