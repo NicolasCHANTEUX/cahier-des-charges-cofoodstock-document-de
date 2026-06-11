@@ -12,7 +12,7 @@ import { clearBrowserAccountStatusCache } from "@/lib/supabase/browser-account";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import { buildAccountStorageKey } from "@/lib/account-storage";
 import { routes } from "@/lib/routes";
-import { buildSettingsChangeSummary, calculateBmi, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
+import { calculateBmi, calculateMaintenanceCalories, calculateTargetCalories, defaultSettingsProfile, formatBmi, formatCalories, getBmiLabel, getGoalDefaultAdjustment, getGoalLabel, type SettingsProfile } from "@/lib/settings";
 import { applyThemePreference, isThemePreference, THEME_STORAGE_KEY, type ThemePreference } from "@/lib/theme";
 
 const STORAGE_KEY = "ecofoodstock:settings-profile";
@@ -148,43 +148,25 @@ export function SettingsView() {
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify(profile)
       });
+      const settingsPayload = (await settingsResponse.json().catch(() => null)) as {
+        profile?: SettingsProfile;
+        historyEventCreated?: boolean;
+        message?: string;
+        error?: string;
+      } | null;
 
       if (!settingsResponse.ok) {
-        throw new Error(`HTTP ${settingsResponse.status}`);
+        throw new Error(formatSettingsSaveError(settingsPayload, settingsResponse.status));
       }
 
-      const changes = buildSettingsChangeSummary(baselineRef.current, profile);
+      const savedProfile = settingsPayload?.profile ?? profile;
 
-      if (changes !== "Aucune modification") {
-        const historyResponse = await fetch("/api/history", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify({
-            type: "product_adjusted",
-            title: "Paramètres mis à jour",
-            description: `${changes}. IMC ${formatBmi(bmi)}, besoin ${formatCalories(maintenanceCalories)}, objectif ${getGoalLabel(profile.goal)} (${profile.dailyCaloriesAdjustment > 0 ? "+" : ""}${profile.dailyCaloriesAdjustment} kcal).`,
-            canUndo: true,
-            metadata: {
-              section: "settings",
-              previous_profile: baselineRef.current,
-              next_profile: profile
-            }
-          })
-        });
-
-        baselineRef.current = profile;
-        setStatus(
-          historyResponse.ok
-            ? "Parametres enregistres et ajoutes a l'historique."
-            : "Parametres enregistres, mais l'historique n'a pas pu etre mis a jour."
-        );
-        return;
-      }
-
-      baselineRef.current = profile;
-      setStatus("Paramètres enregistrés.");
-    } catch {
-      setStatus("Impossible d'enregistrer les paramètres pour le moment.");
+      baselineRef.current = savedProfile;
+      persistProfileLocally(savedProfile);
+      setProfile(savedProfile);
+      setStatus(settingsPayload?.historyEventCreated ? "Paramètres enregistrés et ajoutés à l'historique." : "Paramètres enregistrés.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Impossible d'enregistrer les paramètres pour le moment.");
     } finally {
       setSaving(false);
     }
@@ -1391,6 +1373,21 @@ function readStoredProfile(keys: string[]) {
   }
 
   return null;
+}
+
+function formatSettingsSaveError(
+  payload: { message?: string; error?: string } | null,
+  status: number
+) {
+  if (payload?.message && payload.error) {
+    return `${payload.message}: ${payload.error}`;
+  }
+
+  if (payload?.message) {
+    return payload.message;
+  }
+
+  return `Impossible d'enregistrer les paramètres pour le moment. HTTP ${status}`;
 }
 
 async function clearCacheStorage() {
