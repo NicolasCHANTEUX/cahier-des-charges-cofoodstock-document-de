@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Box, MinusCircle, Plus, Trash2, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -183,10 +183,11 @@ export function InventoryView() {
           </div>
         ) : (
           <div className="space-y-1.5 sm:space-y-2">
-            {filteredInventory.map((item) => (
+            {filteredInventory.map((item, index) => (
               <div
                 key={item.id}
-                className="rounded-lg border border-slate-200 px-3 py-2 sm:grid sm:grid-cols-[auto_auto_1fr_auto_auto] sm:items-center sm:gap-3 sm:py-3"
+                className="stagger-item-enter rounded-lg border border-slate-200 px-3 py-2 sm:grid sm:grid-cols-[auto_auto_1fr_auto_auto] sm:items-center sm:gap-3 sm:py-3"
+                style={{ "--stagger-item-delay": `${Math.min(index * 34, 220)}ms` } as CSSProperties}
               >
                 <input className="hidden h-5 w-5 rounded border-slate-300 sm:block" type="checkbox" />
                 <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 sm:contents">

@@ -29,7 +29,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
+    <html
+      lang="fr"
+      data-theme="light"
+      data-theme-preference="system"
+      style={{ colorScheme: "light" }}
+      suppressHydrationWarning
+    >
       <body>
         <script
           dangerouslySetInnerHTML={{

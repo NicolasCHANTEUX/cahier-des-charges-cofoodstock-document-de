@@ -7,12 +7,12 @@
   },
   "scripts": {
     "predev": "node scripts/check-node-version.mjs",
-    "dev": "next dev",
+    "dev": "node scripts/run-next.mjs dev",
     "prebuild": "node scripts/check-node-version.mjs",
-    "build": "next build",
+    "build": "node scripts/run-next.mjs build",
     "prestart": "node scripts/check-node-version.mjs",
-    "start": "next start",
-    "preview:mobile": "next build && next start -H 0.0.0.0",
+    "start": "node scripts/run-next.mjs start",
+    "preview:mobile": "node scripts/run-next.mjs build && node scripts/run-next.mjs start -H 0.0.0.0",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

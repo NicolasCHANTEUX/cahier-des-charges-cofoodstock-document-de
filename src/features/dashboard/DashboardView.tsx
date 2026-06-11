@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { PackageSearch } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -98,10 +98,11 @@ export function DashboardView() {
               </p>
             ) : null}
 
-            {inventory.slice(0, 8).map((item) => (
+            {inventory.slice(0, 8).map((item, index) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-4 py-3"
+                className="stagger-item-enter flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-4 py-3"
+                style={{ "--stagger-item-delay": `${Math.min(index * 34, 220)}ms` } as CSSProperties}
               >
                 <div className="flex items-center gap-3">
                   <ProductThumbnail name={item.name} imageUrl={item.imageUrl} fallbackLabel={item.icon} />
