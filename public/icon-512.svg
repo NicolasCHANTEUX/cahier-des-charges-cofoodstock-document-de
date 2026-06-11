@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">EcoFoodStock</title>
-  <desc id="desc">Leaf icon on a dark background</desc>
-  <rect width="512" height="512" rx="104" fill="#0f172a"/>
-  <path d="M344 126c-82 8-152 78-160 160-5 55 16 104 48 136 32 32 81 53 136 48 82-8 152-78 160-160 5-55-16-104-48-136-32-32-81-53-136-48Z" fill="#16a34a" opacity="0.95"/>
-  <path d="M182 324c72-15 130-73 145-145" stroke="#dcfce7" stroke-width="28" stroke-linecap="round" fill="none"/>
-  <circle cx="188" cy="324" r="28" fill="#dcfce7"/>
-</svg>

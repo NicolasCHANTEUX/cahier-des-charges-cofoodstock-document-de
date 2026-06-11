@@ -14,8 +14,12 @@ export const metadata: Metadata = {
     title: "EcoFoodStock"
   },
   icons: {
-    icon: "/icon-192.svg",
-    apple: "/apple-touch-icon.svg"
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.svg", type: "image/svg+xml" }
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/icon.svg"
   }
 };
 

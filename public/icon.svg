@@ -1,0 +1,26 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#059669"/>
+      <stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="102" fill="url(#bg)"/>
+
+  <!-- Scan frame corners: vertical gap now matches horizontal gap -->
+  <path d="M72 159V81H150" stroke="#D1FAE5" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M362 81H440V159" stroke="#D1FAE5" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M72 353V431H150" stroke="#D1FAE5" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M362 431H440V353" stroke="#D1FAE5" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Stock container centered inside the scan frame -->
+  <rect x="128" y="137" width="256" height="238" rx="28" fill="white"/>
+  <rect x="128" y="137" width="256" height="238" rx="28" stroke="#064E3B" stroke-width="14"/>
+
+  <rect x="162" y="171" width="188" height="46" rx="15" fill="#D1FAE5"/>
+
+  <!-- Inventory shelf lines -->
+  <path d="M166 267H346" stroke="#064E3B" stroke-width="14" stroke-linecap="round"/>
+  <path d="M166 313H346" stroke="#064E3B" stroke-width="14" stroke-linecap="round"/>
+</svg>
