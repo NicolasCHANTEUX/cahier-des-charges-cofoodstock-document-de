@@ -93,7 +93,7 @@ export async function GET(req: Request, { params }: RouteContext) {
           image_url: product.imageUrl ?? null,
           source: "open_food_facts",
           default_storage_area: product.storageArea ?? "other",
-          default_unit: "unit"
+          default_unit: "pieces"
         },
         { onConflict: "barcode" }
       )

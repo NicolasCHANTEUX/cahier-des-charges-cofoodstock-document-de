@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import {
-  canUseDemoMode,
-  ensureUserHousehold,
-  isProductionEnvironment,
-  resolveAccountContext,
-  userBelongsToHousehold
-} from "@/lib/supabase/account-context";
-import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { canUseDemoMode } from "@/lib/supabase/account-context";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 import { mockInventory } from "@/lib/mock-data";
-import { lookupOpenFoodFactsProduct } from "@/lib/open-food-facts";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
+import { normalizeQuantityUnit } from "@/lib/units";
 
 type InventorySummaryRow = {
   household_id: string;
@@ -27,57 +20,21 @@ type InventorySummaryRow = {
 };
 
 export async function GET(req: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
+  if (!access.ok) {
     if (canUseDemoMode()) {
       return NextResponse.json({ ok: true, inventory: mockInventory });
     }
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-  let householdId = context.householdId;
-
-  if (context.authenticated) {
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
-
-    if (!householdId) {
-      return NextResponse.json({ ok: true, inventory: [] });
-    }
-
-    const belongsToHousehold = await userBelongsToHousehold(supabase, context.appUserId, householdId);
-
-    if (!belongsToHousehold) {
-      return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
-    }
-  } else if (isProductionEnvironment()) {
-    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-  } else if (canUseDemoMode()) {
-    try {
-      householdId = await ensureDemoHousehold(supabase);
-    } catch {
-      householdId = undefined;
-    }
-  }
-
-  if (!householdId) {
-    if (canUseDemoMode()) {
-      return NextResponse.json({ ok: true, inventory: mockInventory });
-    }
-    return NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 });
-  }
+  const { supabase } = access;
 
   const { data, error } = await supabase
     .from("active_inventory_summary")
     .select("household_id, product_id, name, brand, category, image_url, storage_area, nearest_expiration_date, total_quantity_remaining, unit")
-    .eq("household_id", householdId)
+    .eq("household_id", access.householdId)
     .order("nearest_expiration_date", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
 
@@ -90,59 +47,14 @@ export async function GET(req: Request) {
 
   const rows = data as InventorySummaryRow[];
 
-  const missingImageRows = rows.filter((row) => !row.image_url);
-  const fallbackImageMap = new Map<string, string>();
-
-  if (missingImageRows.length > 0) {
-    const { data: productRows } = await supabase
-      .from("products")
-      .select("id, barcode, image_url")
-      .in(
-        "id",
-        missingImageRows.map((row) => row.product_id)
-      );
-
-    const productIndex = new Map<string, { barcode?: string | null; image_url?: string | null }>();
-    (productRows ?? []).forEach((product) => {
-      productIndex.set(product.id, { barcode: product.barcode, image_url: product.image_url });
-    });
-
-    await Promise.all(
-      missingImageRows.map(async (row) => {
-        const product = productIndex.get(row.product_id);
-
-        if (product?.image_url) {
-          fallbackImageMap.set(row.product_id, product.image_url);
-          return;
-        }
-
-        if (!product?.barcode) {
-          return;
-        }
-
-        const offProduct = await lookupOpenFoodFactsProduct(product.barcode).catch(() => null);
-
-        if (!offProduct?.imageUrl) {
-          return;
-        }
-
-        fallbackImageMap.set(row.product_id, offProduct.imageUrl);
-
-        await supabase
-          .from("products")
-          .update({ image_url: offProduct.imageUrl })
-          .eq("id", row.product_id);
-      })
-    );
-  }
-
   const inventory = rows.map((row) => ({
-    id: row.product_id,
+    id: createInventoryLineId(row.product_id, row.storage_area, row.unit),
+    productId: row.product_id,
     name: row.name,
     icon: createIconLabel(row.name),
-    imageUrl: proxiedOffImageUrl(row.image_url ?? fallbackImageMap.get(row.product_id) ?? undefined),
+    imageUrl: proxiedOffImageUrl(row.image_url ?? undefined),
     quantity: Number(row.total_quantity_remaining),
-    unit: normalizeUnit(row.unit),
+    unit: normalizeQuantityUnit(row.unit),
     storageArea: normalizeStorageArea(row.storage_area),
     expirationDate: row.nearest_expiration_date ?? undefined,
     expirationLabel: formatExpirationLabel(row.nearest_expiration_date ?? undefined),
@@ -150,6 +62,10 @@ export async function GET(req: Request) {
   }));
 
   return NextResponse.json({ ok: true, inventory });
+}
+
+function createInventoryLineId(productId: string, storageArea: string, unit: string) {
+  return `${productId}:${normalizeStorageArea(storageArea)}:${normalizeQuantityUnit(unit)}`;
 }
 
 function createIconLabel(name: string) {
@@ -163,14 +79,6 @@ function normalizeStorageArea(value: string): "fresh" | "frozen" | "dry" | "othe
   }
 
   return "other";
-}
-
-function normalizeUnit(value: string) {
-  if (value === "g" || value === "ml" || value === "pieces" || value === "portions" || value === "pots" || value === "paquets" || value === "bouteilles") {
-    return value;
-  }
-
-  return "pieces";
 }
 
 function formatExpirationLabel(expirationDate?: string) {

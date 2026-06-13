@@ -2,6 +2,7 @@ import { mockInventory } from "@/lib/mock-data";
 import { proxiedOffImageUrl } from "@/lib/image-proxy";
 import { canUseDemoMode } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeQuantityUnit } from "@/lib/units";
 import type { BadgeTone, InventoryItem, QuantityUnit, StorageArea } from "@/types/domain";
 
 export type DashboardAlert = {
@@ -99,7 +100,8 @@ async function loadInventory(householdId: string | null) {
     }
 
     return (data as InventorySummaryRow[]).map((row) => ({
-      id: row.product_id,
+      id: createInventoryLineId(row.product_id, row.storage_area, row.unit),
+      productId: row.product_id,
       name: row.name,
       icon: createIconLabel(row.name),
       imageUrl: proxiedOffImageUrl(row.image_url ?? undefined),
@@ -123,6 +125,10 @@ function createIconLabel(name: string) {
   return compact || "PR";
 }
 
+function createInventoryLineId(productId: string, storageArea: string, unit: string) {
+  return `${productId}:${normalizeStorageArea(storageArea)}:${normalizeQuantityUnit(unit)}`;
+}
+
 function normalizeStorageArea(value: string): StorageArea {
   if (value === "fresh" || value === "frozen" || value === "dry") {
     return value;
@@ -132,11 +138,7 @@ function normalizeStorageArea(value: string): StorageArea {
 }
 
 function normalizeUnit(value: string): QuantityUnit {
-  if (value === "g" || value === "ml" || value === "pieces" || value === "portions" || value === "pots" || value === "paquets" || value === "bouteilles") {
-    return value;
-  }
-
-  return "pieces";
+  return normalizeQuantityUnit(value);
 }
 
 function formatExpirationLabel(expirationDate?: string) {

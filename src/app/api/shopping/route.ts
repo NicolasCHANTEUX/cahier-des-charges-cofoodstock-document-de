@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { buildActivityEventInsert } from "@/lib/activity-events";
-import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
-import {
-  canUseDemoMode,
-  ensureUserHousehold,
-  isProductionEnvironment,
-  resolveAccountContext,
-  userBelongsToHousehold
-} from "@/lib/supabase/account-context";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { formatQuantity, normalizeQuantityUnit } from "@/lib/units";
 
 type ShoppingListRow = {
   id: string;
@@ -28,70 +23,80 @@ type ShoppingItemRow = {
 
 const COMPLETED_SESSION_VISIBLE_MS = 24 * 60 * 60 * 1000;
 
+const categorySchema = z.preprocess((value) => normalizeCategory(value), z.enum(["fresh", "frozen", "dry", "other"]));
+const quantityUnitSchema = z.preprocess(
+  (value) => normalizeQuantityUnit(value),
+  z.enum(["g", "ml", "pieces", "portions", "pots", "paquets", "bouteilles"])
+);
+
+const shoppingActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("add_item"),
+    label: z.string().trim().min(1),
+    quantity: z.coerce.number().positive(),
+    unit: quantityUnitSchema,
+    category: categorySchema
+  }),
+  z.object({
+    action: z.literal("toggle_item"),
+    itemId: z.string().trim().min(1),
+    checked: z.coerce.boolean()
+  }),
+  z.object({
+    action: z.literal("toggle_all"),
+    checked: z.coerce.boolean()
+  }),
+  z.object({
+    action: z.literal("delete_item"),
+    itemId: z.string().trim().min(1)
+  }),
+  z.object({
+    action: z.literal("complete_list")
+  }),
+  z.object({
+    action: z.literal("archive_list")
+  })
+]);
+
 export async function GET(req: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-  const householdId = await resolveHouseholdId(req, supabase, context);
-
-  if (!householdId.ok) {
-    return householdId.response;
-  }
-
-  const state = await loadShoppingState(supabase, householdId.householdId);
+  const state = await loadShoppingState(access.supabase, access.householdId);
   return NextResponse.json({ ok: true, ...state });
 }
 
 export async function POST(req: Request) {
-  const payload = await req.json().catch(() => null);
-  if (!payload || typeof payload.action !== "string") {
-    return NextResponse.json({ ok: false, message: "Invalid payload" }, { status: 400 });
+  const rawPayload = await req.json().catch(() => null);
+  const parsedPayload = shoppingActionSchema.safeParse(rawPayload);
+
+  if (!parsedPayload.success) {
+    return NextResponse.json(
+      { ok: false, message: "Invalid payload", errors: parsedPayload.error.flatten().fieldErrors },
+      { status: 400 }
+    );
   }
 
-  let supabase;
+  const payload = parsedPayload.data;
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-  const household = await resolveHouseholdId(req, supabase, context);
-
-  if (!household.ok) {
-    return household.response;
-  }
-
-  const householdId = household.householdId;
+  const { context, householdId, supabase } = access;
 
   if (payload.action === "add_item") {
-    const label = String(payload.label ?? "").trim();
-    const quantity = Number(payload.quantity);
-    const category = normalizeCategory(payload.category);
-    const unit = normalizeUnit(payload.unit);
-
-    if (!label) {
-      return NextResponse.json({ ok: false, message: "Label is required" }, { status: 400 });
-    }
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return NextResponse.json({ ok: false, message: "Quantity must be greater than 0" }, { status: 400 });
-    }
-
     const listId = await getOrCreateActiveListId(supabase, householdId);
     const { error } = await supabase.from("shopping_items").insert({
       shopping_list_id: listId,
-      label,
-      quantity,
-      unit,
-      category,
+      label: payload.label,
+      quantity: payload.quantity,
+      unit: payload.unit,
+      category: payload.category,
       status: "active",
       source: "manual",
       added_by: context.appUserId ?? null
@@ -101,13 +106,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, message: "Unable to add shopping item", error: error.message }, { status: 500 });
     }
   } else if (payload.action === "toggle_item") {
-    const itemId = String(payload.itemId ?? "");
-    const checked = Boolean(payload.checked);
     const listId = await getActiveListId(supabase, householdId);
-
-    if (!itemId) {
-      return NextResponse.json({ ok: false, message: "itemId is required" }, { status: 400 });
-    }
 
     if (!listId) {
       return NextResponse.json({ ok: false, message: "No active shopping list" }, { status: 400 });
@@ -116,18 +115,17 @@ export async function POST(req: Request) {
     const { error } = await supabase
       .from("shopping_items")
       .update({
-        status: checked ? "checked" : "active",
-        checked_at: checked ? new Date().toISOString() : null,
-        checked_by: checked ? context.appUserId ?? null : null
+        status: payload.checked ? "checked" : "active",
+        checked_at: payload.checked ? new Date().toISOString() : null,
+        checked_by: payload.checked ? context.appUserId ?? null : null
       })
-      .eq("id", itemId)
+      .eq("id", payload.itemId)
       .eq("shopping_list_id", listId);
 
     if (error) {
       return NextResponse.json({ ok: false, message: "Unable to update shopping item", error: error.message }, { status: 500 });
     }
   } else if (payload.action === "toggle_all") {
-    const checked = Boolean(payload.checked);
     const listId = await getActiveListId(supabase, householdId);
 
     if (!listId) {
@@ -137,9 +135,9 @@ export async function POST(req: Request) {
     const { error } = await supabase
       .from("shopping_items")
       .update({
-        status: checked ? "checked" : "active",
-        checked_at: checked ? new Date().toISOString() : null,
-        checked_by: checked ? context.appUserId ?? null : null
+        status: payload.checked ? "checked" : "active",
+        checked_at: payload.checked ? new Date().toISOString() : null,
+        checked_by: payload.checked ? context.appUserId ?? null : null
       })
       .eq("shopping_list_id", listId)
       .in("status", ["active", "checked"]);
@@ -148,12 +146,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, message: "Unable to update shopping items", error: error.message }, { status: 500 });
     }
   } else if (payload.action === "delete_item") {
-    const itemId = String(payload.itemId ?? "");
     const listId = await getActiveListId(supabase, householdId);
-
-    if (!itemId) {
-      return NextResponse.json({ ok: false, message: "itemId is required" }, { status: 400 });
-    }
 
     if (!listId) {
       return NextResponse.json({ ok: false, message: "No active shopping list" }, { status: 400 });
@@ -162,7 +155,7 @@ export async function POST(req: Request) {
     const { error } = await supabase
       .from("shopping_items")
       .delete()
-      .eq("id", itemId)
+      .eq("id", payload.itemId)
       .eq("shopping_list_id", listId);
 
     if (error) {
@@ -229,54 +222,6 @@ export async function POST(req: Request) {
 
   const state = await loadShoppingState(supabase, householdId);
   return NextResponse.json({ ok: true, ...state });
-}
-
-async function resolveHouseholdId(
-  req: Request,
-  supabase: ReturnType<typeof createSupabaseServerClient>,
-  context: Awaited<ReturnType<typeof resolveAccountContext>>
-) {
-  let householdId = context.householdId;
-
-  if (!context.authenticated && isProductionEnvironment()) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 })
-    };
-  }
-
-  if (context.authenticated) {
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return {
-        ok: false as const,
-        response: NextResponse.json(
-          { ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) },
-          { status: 500 }
-        )
-      };
-    }
-
-    const belongs = await userBelongsToHousehold(supabase, context.appUserId, householdId);
-    if (!belongs) {
-      return {
-        ok: false as const,
-        response: NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 })
-      };
-    }
-  } else if (canUseDemoMode()) {
-    householdId = await ensureDemoHousehold(supabase).catch(() => undefined);
-  }
-
-  if (!householdId) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 })
-    };
-  }
-
-  return { ok: true as const, householdId };
 }
 
 async function loadShoppingState(supabase: ReturnType<typeof createSupabaseServerClient>, householdId: string) {
@@ -380,14 +325,6 @@ function normalizeCategory(value: unknown) {
   return "other";
 }
 
-function normalizeUnit(value: unknown) {
-  if (typeof value !== "string" || !value.trim()) {
-    return "unit";
-  }
-
-  return value.trim();
-}
-
 function groupShoppingItems(items: ShoppingItemRow[]) {
   const grouped = new Map<string, Array<{ id: string; label: string; quantity: string; icon: string; checked: boolean }>>();
 
@@ -431,9 +368,7 @@ function formatQuantityLabel(quantity: number | null, unit: string | null) {
     return "À définir";
   }
 
-  const cleanUnit = unit?.trim() || "unité";
-  const displayedQuantity = Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/\.?0+$/, "");
-  return `${displayedQuantity} ${cleanUnit}`;
+  return formatQuantity(quantity, normalizeQuantityUnit(unit));
 }
 
 function isRecentCompletedSession(archivedAt: string) {

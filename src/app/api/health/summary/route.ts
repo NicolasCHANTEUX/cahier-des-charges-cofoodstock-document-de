@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 
 type ProductNutritionRow = {
   per_unit?: string | null;
@@ -49,40 +48,14 @@ function normalizeCategory(value: string | null | undefined) {
     .toLowerCase();
 }
 
-const emptySummary = {
-  macronutrients: { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 },
-  freshnessRatio: { fresh: 0, processed: 0 },
-  radar: { fruits: 0, vegetables: 0, starches: 0, dairy: 0, proteins: 0 },
-  seasonalityScore: 0
-};
-
 export async function GET(req: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({
-      ok: true,
-      macronutrients: { calories: 2100, protein_g: 75, carbs_g: 260, fat_g: 70 },
-      freshnessRatio: { fresh: 72, processed: 28 },
-      radar: { fruits: 80, vegetables: 78, starches: 60, dairy: 50, proteins: 70 },
-      seasonalityScore: 85,
-      warning: "supabase_not_configured"
-    });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-  const householdId =
-    context.householdId ||
-    req.headers.get("x-household-id") ||
-    process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID ||
-    process.env.DEMO_HOUSEHOLD_ID;
-
-  if (context.authenticated && !context.householdId) {
-    return NextResponse.json({ ok: true, ...emptySummary });
-  }
-
+  const { householdId, supabase } = access;
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   try {

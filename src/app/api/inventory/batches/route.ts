@@ -1,192 +1,74 @@
 import { NextResponse } from "next/server";
-import {
-  canUseDemoMode,
-  ensureUserHousehold,
-  isProductionEnvironment,
-  resolveAccountContext
-} from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { z } from "zod";
 import { buildActivityEventInsert } from "@/lib/activity-events";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeQuantityUnit } from "@/lib/units";
 
-type ProductPayload = {
-  id?: string;
-  barcode?: string;
-  name?: string;
-  brand?: string | null;
-  category?: string | null;
-  imageUrl?: string | null;
-  source?: string;
-  default_storage_area?: string;
-  default_unit?: string;
-  quantityText?: string | null;
-};
+const quantityUnitSchema = z.preprocess(
+  (value) => normalizeQuantityUnit(value),
+  z.enum(["g", "ml", "pieces", "portions", "pots", "paquets", "bouteilles"])
+);
 
-type CreateBatchPayload = {
-  product?: ProductPayload;
-  quantity?: unknown;
-  unit?: string;
-  storageArea?: string;
-  expirationDate?: string | null;
-  notes?: string | null;
-};
+const createBatchSchema = z.object({
+  product: z.object({
+    id: z.string().trim().optional(),
+    barcode: z.string().trim().optional(),
+    name: z.string().trim().min(1),
+    brand: z.string().trim().nullable().optional(),
+    category: z.string().trim().nullable().optional(),
+    imageUrl: z.string().trim().nullable().optional(),
+    source: z.string().trim().optional(),
+    default_storage_area: z.enum(["fresh", "frozen", "dry", "other"]).optional(),
+    default_unit: quantityUnitSchema.optional(),
+    quantityText: z.string().trim().nullable().optional()
+  }),
+  quantity: z.coerce.number().positive(),
+  unit: quantityUnitSchema,
+  storageArea: z.enum(["fresh", "frozen", "dry", "other"]).default("other"),
+  expirationDate: z.string().trim().nullable().optional(),
+  notes: z.string().trim().nullable().optional()
+});
 
 export async function POST(req: Request) {
-  const payload = await req.json().catch(() => null);
+  const rawPayload = await req.json().catch(() => null);
+  const parsedPayload = createBatchSchema.safeParse(rawPayload);
 
-  if (!payload) {
-    return NextResponse.json({ ok: false, message: "Payload JSON required" }, { status: 400 });
+  if (!parsedPayload.success) {
+    return NextResponse.json(
+      { ok: false, message: "Invalid payload", errors: parsedPayload.error.flatten().fieldErrors },
+      { status: 400 }
+    );
   }
 
-  const { product = {}, quantity, unit, storageArea, expirationDate, notes } =
-    payload as CreateBatchPayload;
-  const numericQuantity = Number(quantity);
+  const payload = parsedPayload.data;
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  if (!product || !product.name || !quantity || numericQuantity <= 0) {
-    return NextResponse.json({ ok: false, message: "Invalid payload" }, { status: 400 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  let supabase;
-
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
-  }
-
-  const context = await resolveAccountContext(req, supabase);
-
-  let householdId = context.householdId;
-
-  if (context.authenticated) {
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
-
-    if (!householdId) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve user account" }, { status: 500 });
-    }
-  } else {
-    if (isProductionEnvironment()) {
-      return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-    }
-
-    householdId = canUseDemoMode() ? req.headers.get("x-household-id") || process.env.NEXT_PUBLIC_DEMO_HOUSEHOLD_ID || process.env.DEMO_HOUSEHOLD_ID : undefined;
-  }
-
-  if (!householdId && canUseDemoMode()) {
-    const { data: created, error: createErr } = await supabase
-      .from("households")
-      .insert({ name: "Demo household" })
-      .select("id")
-      .maybeSingle();
-
-    if (createErr || !created) {
-      console.error("create household error:", createErr);
-
-      const msg = createErr?.message ?? String(createErr);
-
-      // If the DB schema is not applied (tables missing), fallback to a simulated demo response
-      const lower = msg?.toLowerCase() ?? "";
-      if (canUseDemoMode() && (
-        lower.includes("could not find the table") ||
-        lower.includes("relation \"households\" does not exist") ||
-        lower.includes("households") && lower.includes("schema") ||
-        lower.includes("schema cache") ||
-        lower.includes("does not exist")
-      )) {
-        const fakeHouseholdId = `household-fake-${Date.now()}`;
-        const fakeBatchId = `batch-fake-${Date.now()}`;
-        const fakeMovementId = `movement-fake-${Date.now()}`;
-
-        const fakeBatch = {
-          id: fakeBatchId,
-          household_id: fakeHouseholdId,
-          product_id: product.id ?? `product-fake-${Date.now()}`,
-          quantity_initial: numericQuantity,
-          quantity_remaining: numericQuantity,
-          unit: unit ?? "unit",
-          storage_area: storageArea ?? "other",
-          expiration_date: expirationDate ?? null,
-          notes: notes ?? null,
-          source: "scan",
-          created_at: new Date().toISOString()
-        };
-
-        const fakeMovement = {
-          id: fakeMovementId,
-          household_id: fakeHouseholdId,
-          inventory_batch_id: fakeBatchId,
-          product_id: fakeBatch.product_id,
-          type: "add",
-          quantity_delta: numericQuantity,
-          unit: unit ?? "unit",
-          reason: "Ajout depuis scan",
-          metadata: { source: "scan" },
-          created_at: new Date().toISOString()
-        };
-
-        return NextResponse.json({ ok: true, batch: fakeBatch, movement: fakeMovement, product: { id: product.id ?? fakeBatch.product_id, name: product.name }, warning: "db_schema_missing" });
-      }
-
-      return NextResponse.json({ ok: false, message: "Unable to create demo household", error: createErr?.message ?? createErr }, { status: 500 });
-    }
-
-    householdId = created.id;
-  }
-
-  if (!householdId) {
-    return NextResponse.json({ ok: false, message: "Household is required" }, { status: 400 });
-  }
-
-  // Upsert product into catalog (by barcode if provided)
-  let productId: string | undefined = product.id;
-
-  if (!productId) {
-    const upsertPayload: Record<string, unknown> = {
-      name: product.name,
-      brand: product.brand ?? null,
-      category: product.category ?? null,
-      image_url: product.imageUrl ?? null,
-      source: product.source ?? "manual",
-      default_storage_area: product.default_storage_area ?? "other",
-      default_unit: product.default_unit ?? "unit"
-    };
-
-    if (product.barcode) {
-      upsertPayload.barcode = product.barcode;
-    }
-
-    const { data: storedProduct, error: upsertError } = await supabase
-      .from("products")
-      .upsert(upsertPayload, product.barcode ? { onConflict: "barcode" } : undefined)
-      .select("id, barcode, name")
-      .maybeSingle();
-
-    if (upsertError) {
-      return NextResponse.json({ ok: false, message: "Unable to upsert product", error: upsertError }, { status: 500 });
-    }
-
-    productId = storedProduct?.id;
-  }
+  const { context, householdId, supabase } = access;
+  const productId = await resolveProductId(supabase, payload.product).catch((error) => {
+    console.error("product upsert error:", error);
+    return undefined;
+  });
 
   if (!productId) {
     return NextResponse.json({ ok: false, message: "Could not determine product id" }, { status: 500 });
   }
 
-  // Create inventory batch
   const batchInsert = {
     household_id: householdId,
     product_id: productId,
-    quantity_initial: numericQuantity,
-    quantity_remaining: numericQuantity,
-    unit: unit ?? "unit",
-    storage_area: storageArea ?? "other",
-    expiration_date: expirationDate ?? null,
+    quantity_initial: payload.quantity,
+    quantity_remaining: payload.quantity,
+    unit: payload.unit,
+    storage_area: payload.storageArea,
+    expiration_date: payload.expirationDate || null,
     added_by: context.appUserId ?? null,
-    notes: notes ?? null,
-    source: "scan"
+    notes: payload.notes ?? null,
+    source: payload.product.barcode ? "scan" : "manual"
   };
 
   const { data: batch, error: batchError } = await supabase
@@ -196,30 +78,7 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (batchError || !batch) {
-    return NextResponse.json({ ok: false, message: "Unable to create inventory batch", error: batchError }, { status: 500 });
-  }
-
-  // Record inventory movement
-  const movementInsert = {
-    household_id: householdId,
-    inventory_batch_id: batch.id,
-    product_id: productId,
-    user_id: context.appUserId ?? null,
-    type: "add",
-    quantity_delta: numericQuantity,
-    unit: unit ?? "unit",
-    reason: "Ajout depuis scan",
-    metadata: { source: "scan" }
-  };
-
-  const { data: movement, error: movementError } = await supabase
-    .from("inventory_movements")
-    .insert(movementInsert)
-    .select()
-    .maybeSingle();
-
-  if (movementError || !movement) {
-    return NextResponse.json({ ok: false, message: "Batch created but unable to record movement", batch, error: movementError }, { status: 500 });
+    return NextResponse.json({ ok: false, message: "Unable to create inventory batch", error: batchError?.message }, { status: 500 });
   }
 
   const { data: activityEvent, error: activityError } = await supabase
@@ -229,26 +88,114 @@ export async function POST(req: Request) {
         household_id: householdId,
         user_id: context.appUserId ?? null,
         type: "product_added",
-        title: `+${numericQuantity} ${product.name} ajouté au stock`,
-        description: `${numericQuantity} ${unit ?? "unit"} - ajout via scan`,
+        title: `+${payload.quantity} ${payload.product.name} ajouté au stock`,
+        description: `${payload.quantity} ${payload.unit} - ajout ${payload.product.barcode ? "via scan" : "manuel"}`,
         product_id: productId,
         can_undo: true,
         metadata: {
-          source: "scan",
-          inventory_batch_id: batch.id,
-          inventory_movement_id: movement.id
+          source: payload.product.barcode ? "scan" : "manual",
+          inventory_batch_id: batch.id
         }
       })
     )
     .select("id")
-    .maybeSingle();
+    .maybeSingle<{ id: string }>();
 
-  if (!activityError && activityEvent) {
-    await supabase
-      .from("inventory_movements")
-      .update({ activity_event_id: activityEvent.id })
-      .eq("id", movement.id);
+  if (activityError || !activityEvent?.id) {
+    const rollbackErrors = await rollbackCreatedBatch(supabase, batch.id);
+    return NextResponse.json(
+      { ok: false, message: "Batch created but activity could not be recorded", error: activityError?.message, rollbackErrors },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ ok: true, batch, movement, product: { id: productId, name: product.name } });
+  const { data: movement, error: movementError } = await supabase
+    .from("inventory_movements")
+    .insert({
+      household_id: householdId,
+      inventory_batch_id: batch.id,
+      product_id: productId,
+      user_id: context.appUserId ?? null,
+      type: "add",
+      quantity_delta: payload.quantity,
+      unit: payload.unit,
+      reason: payload.product.barcode ? "Ajout depuis scan" : "Ajout manuel",
+      activity_event_id: activityEvent.id,
+      metadata: { source: payload.product.barcode ? "scan" : "manual", activity_event_id: activityEvent.id }
+    })
+    .select()
+    .maybeSingle();
+
+  if (movementError || !movement) {
+    const rollbackErrors = await rollbackCreatedBatch(supabase, batch.id, activityEvent.id);
+    return NextResponse.json(
+      { ok: false, message: "Batch created but movement could not be recorded", error: movementError?.message, rollbackErrors },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    batch,
+    movement,
+    product: { id: productId, name: payload.product.name },
+    activityEventId: activityEvent.id
+  });
+}
+
+async function resolveProductId(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  product: z.infer<typeof createBatchSchema>["product"]
+) {
+  if (product.id) {
+    return product.id;
+  }
+
+  const upsertPayload: Record<string, unknown> = {
+    name: product.name,
+    brand: product.brand ?? null,
+    category: product.category ?? null,
+    image_url: product.imageUrl ?? null,
+    source: product.source ?? "manual",
+    default_storage_area: product.default_storage_area ?? "other",
+    default_unit: product.default_unit ?? "pieces"
+  };
+
+  if (product.barcode) {
+    upsertPayload.barcode = product.barcode;
+  }
+
+  const { data: storedProduct, error: upsertError } = await supabase
+    .from("products")
+    .upsert(upsertPayload, product.barcode ? { onConflict: "barcode" } : undefined)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (upsertError) {
+    throw upsertError;
+  }
+
+  return storedProduct?.id;
+}
+
+async function rollbackCreatedBatch(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  batchId: string,
+  activityEventId?: string
+) {
+  const errors: string[] = [];
+
+  if (activityEventId) {
+    const { error } = await supabase.from("activity_events").delete().eq("id", activityEventId);
+    if (error) {
+      errors.push(`activity_events: ${error.message}`);
+    }
+  }
+
+  const { error } = await supabase.from("inventory_batches").delete().eq("id", batchId);
+  if (error) {
+    errors.push(`inventory_batches: ${error.message}`);
+  }
+
+  return errors;
 }

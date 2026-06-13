@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
+import { z } from "zod";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   buildSettingsChangeSummary,
@@ -38,51 +39,55 @@ type SettingsHistoryPayload = {
   changes: string;
 };
 
+const settingsProfileSchema = z.object({
+  householdSize: z.coerce.number().optional(),
+  diet: z.enum(["omnivore", "vegetarian", "vegan", "pescatarian"]).optional(),
+  appMode: z.enum(["general_public", "athlete"]).optional(),
+  age: z.coerce.number().optional(),
+  weightKg: z.coerce.number().optional(),
+  heightCm: z.coerce.number().optional(),
+  sex: z.enum(["male", "female", "other"]).optional(),
+  goal: z.enum(["mass_gain", "cut", "maintenance"]).optional(),
+  dailyCaloriesAdjustment: z.coerce.number().optional()
+});
+
 export async function GET(req: Request) {
-  try {
-    const supabase = createSupabaseServerClient();
-    const context = await resolveAccountContext(req, supabase);
+  const access = await requireHouseholdAccess(req, { requireAuth: true });
 
-    if (!context.appUserId) {
-      return NextResponse.json({ ok: true, profile: defaultSettingsProfile, warning: "no_user_header" });
-    }
-
-    const profile = await loadSettingsProfile(supabase, context.appUserId);
-
-    return NextResponse.json({ ok: true, profile });
-  } catch {
-    return NextResponse.json({ ok: true, profile: defaultSettingsProfile, warning: "supabase_not_configured" });
+  if (!access.ok) {
+    return access.response;
   }
+
+  const profile = await loadSettingsProfile(access.supabase, access.context.appUserId!);
+  return NextResponse.json({ ok: true, profile });
 }
 
 export async function POST(req: Request) {
-  const payload = (await req.json().catch(() => null)) as Partial<SettingsProfile> | null;
+  const rawPayload = await req.json().catch(() => null);
+  const parsedPayload = settingsProfileSchema.safeParse(rawPayload);
 
-  if (!payload) {
-    return NextResponse.json({ ok: false, message: "Payload JSON required" }, { status: 400 });
+  if (!parsedPayload.success) {
+    return NextResponse.json(
+      { ok: false, message: "Invalid payload", errors: parsedPayload.error.flatten().fieldErrors },
+      { status: 400 }
+    );
   }
 
-  let supabase;
+  const access = await requireHouseholdAccess(req, { requireAuth: true });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-
-  if (!context.authenticated || !context.appUserId) {
-    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-  }
-
-  const previousProfile = await loadSettingsProfile(supabase, context.appUserId);
-  const profile = normalizeProfile(payload);
+  const { context, householdId, supabase } = access;
+  const appUserId = context.appUserId!;
+  const previousProfile = await loadSettingsProfile(supabase, appUserId);
+  const profile = normalizeProfile(parsedPayload.data);
   const changes = buildSettingsChangeSummary(previousProfile, profile);
 
   const { error: preferencesError } = await supabase.from("user_preferences").upsert(
     {
-      user_id: context.appUserId,
+      user_id: appUserId,
       app_mode: profile.appMode,
       household_size: profile.householdSize,
       diet: profile.diet,
@@ -97,7 +102,7 @@ export async function POST(req: Request) {
 
   const { error: healthError } = await supabase.from("user_health_profiles").upsert(
     {
-      user_id: context.appUserId,
+      user_id: appUserId,
       sex: profile.sex,
       height_cm: Math.round(profile.heightCm),
       weight_kg: profile.weightKg,
@@ -118,11 +123,11 @@ export async function POST(req: Request) {
     await supabase
       .from("nutrition_goals")
       .update({ is_active: false })
-      .eq("user_id", context.appUserId)
+      .eq("user_id", appUserId)
       .eq("is_active", true);
 
     await supabase.from("nutrition_goals").insert({
-      user_id: context.appUserId,
+      user_id: appUserId,
       calories_kcal: targetCalories,
       is_active: true
     });
@@ -131,28 +136,9 @@ export async function POST(req: Request) {
   let historyEventCreated = false;
 
   if (changes !== "Aucune modification") {
-    let householdId: string | undefined;
-
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "Unable to resolve household for settings history",
-          error: error instanceof Error ? error.message : String(error)
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!householdId) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve household for settings history" }, { status: 500 });
-    }
-
     const activityError = await createSettingsHistoryEvent(supabase, {
       householdId,
-      userId: context.appUserId,
+      userId: appUserId,
       previousProfile,
       profile,
       changes

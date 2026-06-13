@@ -178,7 +178,7 @@ export function ShoppingView() {
         action: "add_item",
         label,
         quantity,
-        unit: quantity > 1 ? "unités" : "unité",
+        unit: "pieces",
         category: "other"
       });
       setNewItemLabel("");
@@ -239,7 +239,7 @@ export function ShoppingView() {
           action: "add_item",
           label,
           quantity: 1,
-          unit: "unité",
+          unit: "pieces",
           category: "other"
         },
         nextImageMap

@@ -65,8 +65,14 @@ async function fetchAccountStatus(accessToken: string): Promise<BrowserAccountSt
       return { authenticated: false, onboardingCompleted: false };
     }
 
-    return { authenticated: true, onboardingCompleted: true };
+    throw new Error(`Unable to load account status (${response.status})`);
   }
 
-  return (await response.json()) as BrowserAccountStatus;
+  const payload = (await response.json()) as Partial<BrowserAccountStatus>;
+
+  if (typeof payload.authenticated !== "boolean" || typeof payload.onboardingCompleted !== "boolean") {
+    throw new Error("Invalid account status response");
+  }
+
+  return payload as BrowserAccountStatus;
 }

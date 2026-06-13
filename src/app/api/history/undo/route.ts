@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildActivityEventInsert } from "@/lib/activity-events";
+import { normalizeQuantityUnit } from "@/lib/units";
 
 export async function POST(req: Request) {
   const payload = await req.json().catch(() => null);
@@ -172,7 +173,7 @@ export async function POST(req: Request) {
             product_id: mv.product_id,
             quantity_initial: createdQty,
             quantity_remaining: createdQty,
-            unit: mv.unit || "unit",
+            unit: normalizeQuantityUnit(mv.unit),
             storage_area: (mv.storage_area as string) || "other",
             status: "active",
             source: "undo_recreated",

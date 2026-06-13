@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { canUseDemoMode, ensureUserHousehold, isProductionEnvironment, resolveAccountContext, userBelongsToHousehold } from "@/lib/supabase/account-context";
+import { z } from "zod";
 import { mapActivityEventRow } from "@/lib/activity-events";
 import { buildActivityEventInsert } from "@/lib/activity-events";
-import { ensureDemoHousehold } from "@/lib/supabase/demo-household";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
+import type { ActivityType } from "@/types/domain";
 
 type ActivityEventRow = {
   id: string;
-  type: "product_added" | "product_consumed" | "product_wasted" | "product_adjusted" | "undo";
+  type: ActivityType;
   title: string;
   description: string | null;
   can_undo: boolean;
@@ -15,47 +15,22 @@ type ActivityEventRow = {
   metadata?: Record<string, unknown> | null;
 };
 
+const historyEventSchema = z.object({
+  type: z.enum(["product_added", "product_consumed", "product_wasted", "product_adjusted", "recipe_cooked", "shopping_finished", "undo"]).optional(),
+  title: z.string().trim().min(1),
+  description: z.string().trim().nullable().optional(),
+  canUndo: z.coerce.boolean().optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
 export async function GET(req: Request) {
-  let supabase;
-  const isProd = isProductionEnvironment();
+  const access = await requireHouseholdAccess(req, { allowDemo: true, requireAuth: false });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    if (isProd) {
-      return NextResponse.json({ ok: false, message: "Unable to load history" }, { status: 500 });
-    }
-    return NextResponse.json({ ok: true, events: [] });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-  let householdId = context.householdId;
-
-  if (!context.authenticated && isProd) {
-    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-  }
-
-  if (context.authenticated) {
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
-  } else if (!householdId && canUseDemoMode()) {
-    try {
-      householdId = await ensureDemoHousehold(supabase);
-    } catch {
-      householdId = undefined;
-    }
-  }
-
-  if (!householdId) {
-    if (isProd) {
-      return NextResponse.json({ ok: false, message: "Unable to load history" }, { status: 500 });
-    }
-    return NextResponse.json({ ok: true, events: [] });
-  }
-
+  const { householdId, supabase } = access;
   const { data, error } = await supabase
     .from("activity_events")
     .select("id, type, title, description, can_undo, created_at, metadata")
@@ -63,10 +38,7 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false });
 
   if (error || !data) {
-    if (isProd) {
-      return NextResponse.json({ ok: false, message: "Unable to load history", error: error?.message ?? "history_query_failed" }, { status: 500 });
-    }
-    return NextResponse.json({ ok: true, events: [], warning: error?.message ?? "history_fallback" });
+    return NextResponse.json({ ok: false, message: "Unable to load history", error: error?.message ?? "history_query_failed" }, { status: 500 });
   }
 
   const events = (data as ActivityEventRow[]).map(mapActivityEventRow);
@@ -74,47 +46,24 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const payload = await req.json().catch(() => null);
+  const rawPayload = await req.json().catch(() => null);
+  const parsedPayload = historyEventSchema.safeParse(rawPayload);
 
-  if (!payload || !payload.title) {
-    return NextResponse.json({ ok: false, message: "Payload JSON required" }, { status: 400 });
+  if (!parsedPayload.success) {
+    return NextResponse.json(
+      { ok: false, message: "Invalid payload", errors: parsedPayload.error.flatten().fieldErrors },
+      { status: 400 }
+    );
   }
 
-  let supabase;
+  const access = await requireHouseholdAccess(req, { requireAuth: true });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase server client not configured" }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(req, supabase);
-
-  if (!context.authenticated || !context.appUserId) {
-    return NextResponse.json({ ok: false, message: "Authentication required" }, { status: 401 });
-  }
-
-  let householdId = context.householdId;
-
-  if (context.authenticated) {
-    try {
-      householdId = await ensureUserHousehold(supabase, context);
-    } catch (error) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
-  } else if (!householdId && canUseDemoMode()) {
-    try {
-      householdId = await ensureDemoHousehold(supabase);
-    } catch (error) {
-      return NextResponse.json({ ok: false, message: "Unable to resolve demo household", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-    }
-  }
-
-  const canWrite = await userBelongsToHousehold(supabase, context.appUserId, householdId);
-  if (!canWrite || !householdId) {
-    return NextResponse.json({ ok: false, message: "Forbidden household access" }, { status: 403 });
-  }
-
+  const payload = parsedPayload.data;
+  const { context, householdId, supabase } = access;
   const { data, error } = await supabase
     .from("activity_events")
     .insert(

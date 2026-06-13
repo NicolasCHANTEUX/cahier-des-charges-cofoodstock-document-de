@@ -1,30 +1,19 @@
 import { NextResponse } from "next/server";
-import { ensureUserHousehold, resolveAccountContext } from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 
 export async function GET(request: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(request, { requireAuth: true });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ authenticated: false, onboardingCompleted: false });
+  if (!access.ok) {
+    if (access.response.status === 401) {
+      return NextResponse.json({ authenticated: false, onboardingCompleted: false }, { status: 401 });
+    }
+
+    return access.response;
   }
 
-  const context = await resolveAccountContext(request, supabase);
-
-  if (!context.authenticated || !context.appUserId) {
-    return NextResponse.json({ authenticated: false, onboardingCompleted: false });
-  }
-
-  let householdId = context.householdId;
+  const { context, householdId, supabase } = access;
   let householdName: string | null = null;
-
-  try {
-    householdId = await ensureUserHousehold(supabase, context);
-  } catch {
-    // The session is valid; household repair can be retried by the next protected request.
-  }
 
   if (householdId) {
     const { data: household } = await supabase

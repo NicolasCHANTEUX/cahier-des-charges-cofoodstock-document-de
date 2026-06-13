@@ -1,7 +1,5 @@
-import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 
 type ExportRow = {
   section: string;
@@ -11,26 +9,20 @@ type ExportRow = {
 };
 
 export async function GET(request: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(request, { requireAuth: true });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase serveur n'est pas configure." }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(request, supabase);
-
-  if (!context.authenticated || !context.appUserId) {
-    return NextResponse.json({ ok: false, message: "Utilisateur non authentifie." }, { status: 401 });
-  }
-
-  const rows = await buildExportRows(supabase, context.appUserId);
+  const { context, supabase } = access;
+  const appUserId = context.appUserId!;
+  const rows = await buildExportRows(supabase, appUserId);
   const csv = toCsv(rows);
   const today = new Date().toISOString().slice(0, 10);
 
   await supabase.from("data_exports").insert({
-    user_id: context.appUserId,
+    user_id: appUserId,
     format: "csv",
     status: "ready",
     requested_at: new Date().toISOString(),

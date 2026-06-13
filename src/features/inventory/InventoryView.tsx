@@ -121,9 +121,11 @@ export function InventoryView() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
-          productId: item.id,
+          productId: item.productId ?? item.id,
           action,
-          quantity
+          quantity,
+          storageArea: item.storageArea,
+          unit: item.unit
         })
       });
 

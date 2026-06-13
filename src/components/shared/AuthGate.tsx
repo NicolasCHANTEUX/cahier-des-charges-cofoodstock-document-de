@@ -34,7 +34,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
         return;
       }
 
-      const status = await getBrowserAccountStatus({ force: options.force });
+      let status;
+
+      try {
+        status = await getBrowserAccountStatus({ force: options.force });
+      } catch {
+        checkedAccessTokenRef.current = null;
+        clearBrowserAccountStatusCache();
+        setAuthorized(false);
+        window.setTimeout(() => {
+          if (active) {
+            void handleSession(session, { force: true });
+          }
+        }, 1500);
+        return;
+      }
 
       if (!active) {
         return;

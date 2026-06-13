@@ -15,6 +15,7 @@ export type BadgeTone = "green" | "orange" | "red" | "blue" | "slate";
 
 export type InventoryItem = {
   id: string;
+  productId?: string;
   name: string;
   icon: string;
   imageUrl?: string;

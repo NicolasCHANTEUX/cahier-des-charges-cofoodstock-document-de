@@ -1,33 +1,26 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 
 type HouseholdMembership = {
   household_id: string;
 };
 
 export async function DELETE(request: Request) {
-  let supabase;
+  const access = await requireHouseholdAccess(request, { requireAuth: true });
 
-  try {
-    supabase = createSupabaseServerClient();
-  } catch {
-    return NextResponse.json({ ok: false, message: "Supabase serveur n'est pas configure." }, { status: 500 });
+  if (!access.ok) {
+    return access.response;
   }
 
-  const context = await resolveAccountContext(request, supabase);
-
-  if (!context.authenticated || !context.authUserId) {
-    return NextResponse.json({ ok: false, message: "Utilisateur non authentifie." }, { status: 401 });
-  }
+  const { context, supabase } = access;
 
   try {
     if (context.appUserId) {
       await deleteApplicationAccount(supabase, context.appUserId);
     }
 
-    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(context.authUserId);
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(context.authUserId!);
 
     if (authDeleteError) {
       throw authDeleteError;
