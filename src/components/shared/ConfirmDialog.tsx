@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
@@ -29,21 +30,58 @@ export function ConfirmDialog({
   open,
   title
 }: ConfirmDialogProps) {
-  if (!open) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel, open]);
+
+  if (!mounted || !open) {
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4 py-6">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center overflow-y-auto bg-slate-950/35 p-4"
+      role="presentation"
+      onMouseDown={onCancel}
+    >
+      <div
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-soft"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby={description ? "confirm-dialog-description" : undefined}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
             <div className={`rounded-xl p-2 ${danger ? "bg-rose-50 text-rose-600" : "bg-brand-50 text-brand-700"}`}>
               <AlertTriangle className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-slate-950">{title}</h2>
-              {description ? <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p> : null}
+              <h2 id="confirm-dialog-title" className="text-lg font-bold text-slate-950">{title}</h2>
+              {description ? (
+                <p id="confirm-dialog-description" className="mt-1 text-sm leading-6 text-slate-600">
+                  {description}
+                </p>
+              ) : null}
             </div>
           </div>
           <button
@@ -67,6 +105,7 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

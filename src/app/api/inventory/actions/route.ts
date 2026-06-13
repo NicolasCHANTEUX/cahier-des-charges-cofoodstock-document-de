@@ -18,6 +18,19 @@ type ActiveBatchRow = {
   storage_area: string;
 };
 
+type InventoryMovementInsert = {
+  household_id: string;
+  user_id: string | null;
+  inventory_batch_id: string;
+  product_id: string;
+  type: string;
+  quantity_delta: number;
+  unit: string;
+  reason: string;
+  activity_event_id: string;
+  metadata: Record<string, unknown>;
+};
+
 type RollbackBatchState = {
   id: string;
   quantity_remaining: number;
@@ -167,12 +180,11 @@ export async function POST(req: Request) {
         payload.action === "waste" ? "wasted" : payload.action === "consume" ? "consumed" : "removed";
     }
 
-    const { data: updatedBatch, error: updateError } = await supabase
-      .from("inventory_batches")
-      .update(updatePayload)
-      .eq("id", batch.id)
-      .select("id, household_id, product_id, quantity_remaining, unit, status, expiration_date, storage_area")
-      .maybeSingle<ActiveBatchRow>();
+    const { data: updatedBatch, error: updateError } = await updateInventoryBatchQuantity(
+      supabase,
+      batch.id,
+      updatePayload
+    );
 
     if (updateError || !updatedBatch) {
       const rollbackErrors = await rollbackInventoryAction(supabase, rollbackBatchStates, insertedMovementIds, activityEvent.id);
@@ -189,29 +201,38 @@ export async function POST(req: Request) {
     });
     updatedBatches.push(updatedBatch);
 
-    const { data: movement, error: movementError } = await supabase
-      .from("inventory_movements")
-      .insert({
-        household_id: householdId,
-        user_id: context.appUserId ?? null,
-        inventory_batch_id: batch.id,
-        product_id: productId,
-        type: movementType,
-        quantity_delta: -appliedQuantity,
-        unit: batch.unit,
-        reason: eventText.reason,
-        activity_event_id: activityEvent.id,
-        metadata: {
-          source: "inventory_action",
-          action: payload.action,
-          activity_event_id: activityEvent.id
-        }
-      })
-      .select()
-      .maybeSingle<{ id: string }>();
+    const movementPayload: InventoryMovementInsert = {
+      household_id: householdId,
+      user_id: context.appUserId ?? null,
+      inventory_batch_id: batch.id,
+      product_id: productId,
+      type: movementType,
+      quantity_delta: -appliedQuantity,
+      unit: batch.unit,
+      reason: eventText.reason,
+      activity_event_id: activityEvent.id,
+      metadata: {
+        source: "inventory_action",
+        action: payload.action,
+        activity_event_id: activityEvent.id
+      }
+    };
+
+    const { data: movement, error: movementError } = await insertInventoryMovementWithFallback(
+      supabase,
+      movementPayload,
+      payload.action
+    );
 
     if (movementError || !movement) {
       const rollbackErrors = await rollbackInventoryAction(supabase, rollbackBatchStates, insertedMovementIds, activityEvent.id);
+      console.error("inventory action movement insert failed", {
+        action: payload.action,
+        productId,
+        batchId: batch.id,
+        error: movementError?.message,
+        rollbackErrors
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -245,6 +266,39 @@ export async function POST(req: Request) {
   });
 }
 
+async function updateInventoryBatchQuantity(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  batchId: string,
+  updatePayload: Record<string, unknown>
+) {
+  const firstAttempt = await supabase
+    .from("inventory_batches")
+    .update(updatePayload)
+    .eq("id", batchId)
+    .select("id, household_id, product_id, quantity_remaining, unit, status, expiration_date, storage_area")
+    .maybeSingle<ActiveBatchRow>();
+
+  if (!firstAttempt.error || updatePayload.status === undefined || !isSchemaValueError(firstAttempt.error.message)) {
+    return firstAttempt;
+  }
+
+  const relaxedPayload = { ...updatePayload };
+  delete relaxedPayload.status;
+
+  console.warn("inventory batch status update rejected, retrying quantity-only update", {
+    batchId,
+    status: updatePayload.status,
+    error: firstAttempt.error.message
+  });
+
+  return supabase
+    .from("inventory_batches")
+    .update(relaxedPayload)
+    .eq("id", batchId)
+    .select("id, household_id, product_id, quantity_remaining, unit, status, expiration_date, storage_area")
+    .maybeSingle<ActiveBatchRow>();
+}
+
 async function loadMatchingBatches(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   options: {
@@ -266,16 +320,71 @@ async function loadMatchingBatches(
     query = query.eq("storage_area", options.storageArea);
   }
 
-  if (options.unit) {
-    query = query.eq("unit", options.unit);
-  }
-
   const { data, error } = await query
     .order("expiration_date", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .returns<ActiveBatchRow[]>();
 
-  return { rows: data ?? [], error };
+  const rows = data ?? [];
+
+  if (!options.unit) {
+    return { rows, error };
+  }
+
+  const normalizedUnit = normalizeQuantityUnit(options.unit);
+  return {
+    rows: rows.filter((row) => normalizeQuantityUnit(row.unit) === normalizedUnit),
+    error
+  };
+}
+
+async function insertInventoryMovementWithFallback(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  payload: InventoryMovementInsert,
+  action: InventoryAction
+) {
+  const candidates = getMovementTypeCandidates(action, payload.type);
+  let lastError: { message?: string } | null = null;
+
+  for (const type of candidates) {
+    const { data, error } = await supabase
+      .from("inventory_movements")
+      .insert({ ...payload, type })
+      .select()
+      .maybeSingle<{ id: string }>();
+
+    if (!error && data) {
+      return { data, error: null };
+    }
+
+    lastError = error;
+
+    if (!isSchemaValueError(error?.message)) {
+      break;
+    }
+  }
+
+  return { data: null, error: lastError };
+}
+
+function getMovementTypeCandidates(action: InventoryAction, preferredType: string) {
+  const legacyByAction: Record<InventoryAction, string[]> = {
+    consume: ["consumed"],
+    waste: ["wasted"],
+    adjust: ["adjusted"]
+  };
+
+  return Array.from(new Set([preferredType, ...legacyByAction[action]]));
+}
+
+function isSchemaValueError(message?: string) {
+  const normalizedMessage = message?.toLowerCase() ?? "";
+  return (
+    normalizedMessage.includes("enum") ||
+    normalizedMessage.includes("invalid input value") ||
+    normalizedMessage.includes("batch_status") ||
+    normalizedMessage.includes("movement_type")
+  );
 }
 
 async function rollbackInventoryAction(
