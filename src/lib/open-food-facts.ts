@@ -85,6 +85,8 @@ const OFF_PRODUCT_FIELDS = [
   "nutriments"
 ].join(",");
 
+const OFF_FETCH_TIMEOUT_MS = 8_000;
+
 export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenFoodFactsLookupResult | null> {
   const cleanBarcode = barcode.trim();
 
@@ -92,7 +94,7 @@ export async function lookupOpenFoodFactsProduct(barcode: string): Promise<OpenF
     return null;
   }
 
-  const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=${encodeURIComponent(OFF_PRODUCT_FIELDS)}`, {
+  const response = await fetchWithTimeout(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json?fields=${encodeURIComponent(OFF_PRODUCT_FIELDS)}`, {
     headers: {
       "User-Agent": "EcoFoodStock/0.1.0"
     }
@@ -139,7 +141,7 @@ export async function searchOpenFoodFactsProducts(
     params.set("sort_by", options.sortBy);
   }
 
-  const response = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`, {
+  const response = await fetchWithTimeout(`https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`, {
     headers: {
       "User-Agent": "EcoFoodStock/0.1.0"
     }
@@ -156,6 +158,20 @@ export async function searchOpenFoodFactsProducts(
   }
 
   return payload.products.filter(Boolean).slice(0, pageSize).map((product) => mapOffProduct(product));
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OFF_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function mapOffProduct(product: OpenFoodFactsProduct, fallbackBarcode?: string): OpenFoodFactsLookupResult {

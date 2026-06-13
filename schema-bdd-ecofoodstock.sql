@@ -49,6 +49,24 @@ create table household_members (
   unique (household_id, user_id)
 );
 
+create table invitation_tokens (
+  id uuid primary key default gen_random_uuid(),
+  token text unique not null,
+  household_id uuid not null references households(id) on delete cascade,
+  created_by uuid references users(id) on delete set null,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  consumed_by uuid references users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index invitation_tokens_household_idx
+  on invitation_tokens (household_id);
+
+create index invitation_tokens_active_idx
+  on invitation_tokens (token, expires_at)
+  where consumed_at is null;
+
 create table user_preferences (
   user_id uuid primary key references users(id) on delete cascade,
   app_mode app_mode not null default 'general_public',
@@ -93,7 +111,7 @@ create table products (
   image_url text,
   source text not null default 'manual', -- manual, open_food_facts
   default_storage_area storage_area not null default 'other',
-  default_unit text not null default 'unit',
+  default_unit text not null default 'pieces',
   is_raw_fresh boolean not null default false,
   is_seasonal boolean,
   created_at timestamptz not null default now(),
@@ -121,7 +139,7 @@ create table inventory_batches (
   product_id uuid not null references products(id) on delete restrict,
   quantity_initial numeric(10,3) not null check (quantity_initial > 0),
   quantity_remaining numeric(10,3) not null check (quantity_remaining >= 0),
-  unit text not null default 'unit',
+  unit text not null default 'pieces',
   storage_area storage_area not null default 'other',
   expiration_date date,
   status batch_status not null default 'active',
@@ -147,7 +165,7 @@ create table inventory_movements (
   user_id uuid references users(id) on delete set null,
   type movement_type not null,
   quantity_delta numeric(10,3) not null,
-  unit text not null default 'unit',
+  unit text not null default 'pieces',
   reason text,
   recipe_id uuid,
   activity_event_id uuid,

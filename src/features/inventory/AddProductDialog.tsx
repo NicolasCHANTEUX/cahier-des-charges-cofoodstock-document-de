@@ -5,7 +5,6 @@ import { Barcode, Camera, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
-import type { AddInventoryInput } from "@/features/mvp/useMvpStore";
 import type { QuantityUnit, StorageArea } from "@/types/domain";
 
 type LookupState =
@@ -29,7 +28,6 @@ type AddProductDialogProps = {
   open: boolean;
   initialMode?: "manual" | "scan";
   onClose: () => void;
-  onAdd?: (input: AddInventoryInput) => void;
   onPersisted?: () => void;
 };
 
@@ -54,7 +52,7 @@ const VIDEO_INIT_RETRY_DELAY_MS = 50;
 const fieldClass = "block space-y-1.5 text-sm font-medium";
 const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-base outline-none focus:border-brand-500 sm:h-11 sm:text-sm";
 
-export function AddProductDialog({ initialMode = "manual", open, onClose, onAdd, onPersisted }: AddProductDialogProps) {
+export function AddProductDialog({ initialMode = "manual", open, onClose, onPersisted }: AddProductDialogProps) {
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -355,20 +353,6 @@ export function AddProductDialog({ initialMode = "manual", open, onClose, onAdd,
 
       if (!response.ok) {
         const errorMessage = await response.text();
-
-        if (process.env.NODE_ENV !== "production") {
-          onAdd?.({
-            name: trimmedName,
-            quantity: numericQuantity,
-            unit,
-            storageArea,
-            expirationDate,
-            barcode: barcode.trim() || undefined
-          });
-          onClose();
-          resetForm();
-          return;
-        }
 
         throw new Error(errorMessage || "save_failed");
       }

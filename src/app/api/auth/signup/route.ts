@@ -71,16 +71,23 @@ export async function POST(request: Request) {
       // find token
       const { data: tokenRow } = await supabase
         .from("invitation_tokens")
-        .select("household_id, expires_at")
+        .select("id, household_id, expires_at, consumed_at")
         .eq("token", inviteToken)
-        .maybeSingle();
+        .maybeSingle<{ id: string; household_id: string; expires_at: string | null; consumed_at: string | null }>();
 
-      if (tokenRow && (!tokenRow.expires_at || tokenRow.expires_at > new Date().toISOString())) {
+      if (tokenRow && !tokenRow.consumed_at && (!tokenRow.expires_at || tokenRow.expires_at > new Date().toISOString())) {
         await supabase.from("household_members").insert({
           household_id: tokenRow.household_id,
           user_id: appUser.id,
           role: "member"
         });
+        await supabase
+          .from("invitation_tokens")
+          .update({
+            consumed_at: new Date().toISOString(),
+            consumed_by: appUser.id
+          })
+          .eq("id", tokenRow.id);
         joinedInviteHousehold = true;
       }
     }

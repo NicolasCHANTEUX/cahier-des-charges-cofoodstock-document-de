@@ -287,10 +287,6 @@ export function InventoryView() {
           setAddDialogOpen(false);
           void loadInventory();
         }}
-        onAdd={() => {
-          setAddDialogOpen(false);
-          void loadInventory();
-        }}
       />
 
       <QuantityPromptModal

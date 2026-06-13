@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
-import { resolveAccountContext } from "@/lib/supabase/account-context";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireHouseholdAccess } from "@/lib/supabase/household-access";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createSupabaseServerClient();
-    const context = await resolveAccountContext(request, supabase);
+    const access = await requireHouseholdAccess(request, { requireAuth: true });
 
-    if (!context.appUserId) {
-      return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 404 });
+    if (!access.ok) {
+      return access.response;
     }
 
-    // Ensure the user has permission to invite (owner or admin)
+    const { context, householdId, supabase } = access;
+    const appUserId = context.appUserId!;
+
     const { data: membership } = await supabase
       .from("household_members")
       .select("household_id, role")
-      .eq("user_id", context.appUserId)
+      .eq("user_id", appUserId)
+      .eq("household_id", householdId)
       .in("role", ["owner", "admin"])
       .maybeSingle();
 
@@ -23,15 +24,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Droits insuffisants" }, { status: 403 });
     }
 
-    const token = typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : Math.random().toString(36).slice(2) + Date.now().toString(36);
-
+    const token =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { error: insertErr } = await supabase.from("invitation_tokens").insert({
       token,
-      household_id: membership.household_id,
+      household_id: householdId,
+      created_by: appUserId,
       expires_at: expiresAt
     });
 
@@ -41,6 +43,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, token, expires_at: expiresAt });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message ?? "Unexpected" }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Unexpected" }, { status: 500 });
   }
 }
