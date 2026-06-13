@@ -14,6 +14,13 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<InstallPromptChoice>;
 };
 
+declare global {
+  interface Window {
+    __ecofoodstockBeforeInstallPrompt?: BeforeInstallPromptEvent | null;
+    __ecofoodstockInstallPromptCaptureReady?: boolean;
+  }
+}
+
 const DISMISSED_STORAGE_KEY = "ecofoodstock-pwa-install-dismissed";
 
 function isStandaloneMode() {
@@ -30,28 +37,50 @@ export function PwaInstallPrompt() {
       return;
     }
 
-    const dismissed = window.localStorage.getItem(DISMISSED_STORAGE_KEY) === "1";
+    function shouldShowInstallPrompt() {
+      return window.localStorage.getItem(DISMISSED_STORAGE_KEY) !== "1";
+    }
 
-    function handleBeforeInstallPrompt(event: Event) {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
+    function showPrompt(promptEvent: BeforeInstallPromptEvent | null | undefined) {
+      if (!promptEvent) {
+        return;
+      }
 
-      if (!dismissed) {
+      setInstallPrompt(promptEvent);
+
+      if (shouldShowInstallPrompt()) {
         setVisible(true);
       }
     }
 
+    function handleBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      const promptEvent = event as BeforeInstallPromptEvent;
+      window.__ecofoodstockBeforeInstallPrompt = promptEvent;
+      showPrompt(promptEvent);
+    }
+
+    function handleCapturedInstallPrompt() {
+      showPrompt(window.__ecofoodstockBeforeInstallPrompt);
+    }
+
     function handleAppInstalled() {
+      window.__ecofoodstockBeforeInstallPrompt = null;
       setInstallPrompt(null);
       setVisible(false);
       window.localStorage.setItem(DISMISSED_STORAGE_KEY, "1");
     }
 
+    showPrompt(window.__ecofoodstockBeforeInstallPrompt);
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("ecofoodstock:beforeinstallprompt", handleCapturedInstallPrompt);
+    window.addEventListener("ecofoodstock:appinstalled", handleAppInstalled);
     window.addEventListener("appinstalled", handleAppInstalled);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("ecofoodstock:beforeinstallprompt", handleCapturedInstallPrompt);
+      window.removeEventListener("ecofoodstock:appinstalled", handleAppInstalled);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
   }, []);
@@ -68,6 +97,7 @@ export function PwaInstallPrompt() {
     const promptEvent = installPrompt;
     setVisible(false);
     setInstallPrompt(null);
+    window.__ecofoodstockBeforeInstallPrompt = null;
 
     try {
       await promptEvent.prompt();
@@ -94,7 +124,7 @@ export function PwaInstallPrompt() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-950">Installer EcoFoodStock</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600">Ajoute l'app a ton ecran d'accueil pour l'ouvrir sans la barre du navigateur.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Ajoute l'app à ton écran d'accueil pour l'ouvrir sans la barre du navigateur.</p>
           <Button className="mt-3 h-9 px-3 text-xs" onClick={() => void installApp()}>
             Installer
           </Button>

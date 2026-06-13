@@ -130,16 +130,16 @@ export async function POST(req: Request) {
         type: movementType === "waste" ? "product_wasted" : movementType === "adjust" ? "product_adjusted" : "product_consumed",
         title:
           movementType === "waste"
-            ? `${productRow?.name ?? batch.product_id} jete`
+            ? `${productRow?.name ?? batch.product_id} jeté`
             : movementType === "adjust"
-              ? `${productRow?.name ?? batch.product_id} ajuste`
-              : `${productRow?.name ?? batch.product_id} consomme`,
+              ? `${productRow?.name ?? batch.product_id} ajusté`
+              : `${productRow?.name ?? batch.product_id} consommé`,
         description:
           movementType === "waste"
             ? `${appliedQuantity} ${batch.unit} sorti du stock`
             : movementType === "adjust"
-              ? `${appliedQuantity} ${batch.unit} ajuste manuellement`
-              : `${appliedQuantity} ${batch.unit} retire du stock`,
+              ? `${appliedQuantity} ${batch.unit} ajusté manuellement`
+              : `${appliedQuantity} ${batch.unit} retiré du stock`,
         product_id: productId,
         can_undo: true,
         metadata: {

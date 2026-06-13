@@ -27,17 +27,26 @@ const dairyAndEggDiets: DietType[] = ["omnivore", "vegetarian", "pescatarian"];
 
 const curatedQueries = [
   { id: "milk", queries: ["lactel", "lait lactel"], reason: "Basique du quotidien", diets: dairyAndEggDiets },
-  { id: "yogurt", queries: ["yaourt nature danone", "danone nature"], reason: "Petit-dejeuner rapide", diets: dairyAndEggDiets },
-  { id: "eggs", queries: ["oeufs fermiers", "oeufs frais", "oeufs"], reason: "Proteines faciles", diets: dairyAndEggDiets },
+  { id: "yogurt", queries: ["yaourt nature danone", "danone nature"], reason: "Petit-déjeuner rapide", diets: dairyAndEggDiets },
+  { id: "eggs", queries: ["oeufs fermiers", "oeufs frais", "oeufs"], reason: "Protéines faciles", diets: dairyAndEggDiets },
   { id: "pasta", queries: ["pates barilla", "barilla spaghetti"], reason: "Repas rapide", diets: allDiets },
   { id: "rice", queries: ["riz basmati", "taureau aile basmati"], reason: "Base polyvalente", diets: allDiets },
-  { id: "tomatoes", queries: ["tomates cerise", "tomates cerises"], reason: "Cuisine fraiche", diets: allDiets },
+  { id: "tomatoes", queries: ["tomates cerise", "tomates cerises"], reason: "Cuisine fraîche", diets: allDiets },
   { id: "bananas", queries: ["bananes", "banane"], reason: "Collation classique", diets: allDiets },
   { id: "chicken", queries: ["poulet fermier label rouge", "poulet fermier"], reason: "Plat principal simple", diets: ["omnivore"] },
-  { id: "tofu", queries: ["tofu nature", "tofu bio"], reason: "Proteines vegetales", diets: allDiets },
-  { id: "lentils", queries: ["lentilles vertes", "lentilles corail"], reason: "Base vegetale rassasiante", diets: allDiets },
-  { id: "oat_milk", queries: ["boisson avoine", "lait avoine"], reason: "Alternative vegetale", diets: ["vegan"] },
-  { id: "soy_yogurt", queries: ["yaourt soja nature", "dessert soja nature"], reason: "Alternative vegetale", diets: ["vegan"] }
+  { id: "salmon", queries: ["saumon frais", "filet saumon"], reason: "Source d'oméga 3", diets: ["omnivore", "pescatarian"] },
+  { id: "tuna", queries: ["thon naturel", "thon albacore"], reason: "Protéines rapides", diets: ["omnivore", "pescatarian"] },
+  { id: "tofu", queries: ["tofu nature", "tofu bio"], reason: "Protéines végétales", diets: allDiets },
+  { id: "lentils", queries: ["lentilles vertes", "lentilles corail"], reason: "Base végétale rassasiante", diets: allDiets },
+  { id: "chickpeas", queries: ["pois chiches", "pois chiche"], reason: "Protéines végétales", diets: allDiets },
+  { id: "oats", queries: ["flocons avoine", "flocons d'avoine"], reason: "Fibres et petit-déjeuner", diets: allDiets },
+  { id: "quinoa", queries: ["quinoa", "quinoa bio"], reason: "Base complète", diets: allDiets },
+  { id: "avocado", queries: ["avocat", "avocat bio"], reason: "Bon pour les repas froids", diets: allDiets },
+  { id: "carrots", queries: ["carottes", "carottes bio"], reason: "Légume facile", diets: allDiets },
+  { id: "green_beans", queries: ["haricots verts", "haricots verts extra fins"], reason: "Accompagnement simple", diets: allDiets },
+  { id: "almonds", queries: ["amandes", "amandes entières"], reason: "Collation riche", diets: allDiets },
+  { id: "oat_milk", queries: ["boisson avoine", "lait avoine"], reason: "Alternative végétale", diets: ["vegan"] },
+  { id: "soy_yogurt", queries: ["yaourt soja nature", "dessert soja nature"], reason: "Alternative végétale", diets: ["vegan"] }
 ] satisfies CuratedSuggestionEntry[];
 
 const preferredSuggestionBarcodes: Record<string, string> = {
@@ -51,7 +60,7 @@ const preferredSuggestionBarcodes: Record<string, string> = {
 
 export async function GET(req: Request) {
   const diet = await resolveSuggestionDiet(req);
-  const compatibleQueries = curatedQueries.filter((entry) => entry.diets.includes(diet)).slice(0, 8);
+  const compatibleQueries = curatedQueries.filter((entry) => entry.diets.includes(diet)).slice(0, 16);
 
   const suggestions = await Promise.all(
     compatibleQueries.map(async (entry) => {

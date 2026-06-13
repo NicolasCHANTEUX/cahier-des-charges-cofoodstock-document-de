@@ -126,6 +126,27 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ ok: false, message: "Unable to update shopping item", error: error.message }, { status: 500 });
     }
+  } else if (payload.action === "toggle_all") {
+    const checked = Boolean(payload.checked);
+    const listId = await getActiveListId(supabase, householdId);
+
+    if (!listId) {
+      return NextResponse.json({ ok: false, message: "No active shopping list" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("shopping_items")
+      .update({
+        status: checked ? "checked" : "active",
+        checked_at: checked ? new Date().toISOString() : null,
+        checked_by: checked ? context.appUserId ?? null : null
+      })
+      .eq("shopping_list_id", listId)
+      .in("status", ["active", "checked"]);
+
+    if (error) {
+      return NextResponse.json({ ok: false, message: "Unable to update shopping items", error: error.message }, { status: 500 });
+    }
   } else if (payload.action === "delete_item") {
     const itemId = String(payload.itemId ?? "");
     const listId = await getActiveListId(supabase, householdId);

@@ -112,8 +112,9 @@ export async function POST(req: Request) {
   }
 
   const targetCalories = calculateTargetCalories(profile);
+  const previousTargetCalories = calculateTargetCalories(previousProfile);
 
-  if (targetCalories !== null) {
+  if (targetCalories !== null && targetCalories !== previousTargetCalories) {
     await supabase
       .from("nutrition_goals")
       .update({ is_active: false })

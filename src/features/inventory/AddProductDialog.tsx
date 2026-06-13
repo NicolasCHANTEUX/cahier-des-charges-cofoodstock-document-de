@@ -27,6 +27,7 @@ type LookupState =
 
 type AddProductDialogProps = {
   open: boolean;
+  initialMode?: "manual" | "scan";
   onClose: () => void;
   onAdd?: (input: AddInventoryInput) => void;
   onPersisted?: () => void;
@@ -35,7 +36,7 @@ type AddProductDialogProps = {
 const unitOptions: { label: string; value: QuantityUnit }[] = [
   { label: "Grammes", value: "g" },
   { label: "Millilitres", value: "ml" },
-  { label: "Pieces", value: "pieces" },
+  { label: "Pièces", value: "pieces" },
   { label: "Portions", value: "portions" },
   { label: "Pots", value: "pots" },
   { label: "Paquets", value: "paquets" },
@@ -44,7 +45,7 @@ const unitOptions: { label: string; value: QuantityUnit }[] = [
 
 const storageOptions: { label: string; value: StorageArea }[] = [
   { label: "Frais", value: "fresh" },
-  { label: "Surgeles", value: "frozen" },
+  { label: "Surgelés", value: "frozen" },
   { label: "Sec", value: "dry" },
   { label: "Autre", value: "other" }
 ];
@@ -53,7 +54,7 @@ const VIDEO_INIT_RETRY_DELAY_MS = 50;
 const fieldClass = "block space-y-1.5 text-sm font-medium";
 const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-base outline-none focus:border-brand-500 sm:h-11 sm:text-sm";
 
-export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProductDialogProps) {
+export function AddProductDialog({ initialMode = "manual", open, onClose, onAdd, onPersisted }: AddProductDialogProps) {
   const [barcode, setBarcode] = useState("");
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -70,13 +71,20 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
+  const initialModeStartedRef = useRef(false);
+  const startCameraScanRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     return () => stopCamera();
   }, []);
 
   useEffect(() => {
+    startCameraScanRef.current = startCameraScan;
+  });
+
+  useEffect(() => {
     if (!open) {
+      initialModeStartedRef.current = false;
       return;
     }
 
@@ -90,6 +98,19 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
       document.body.style.overscrollBehavior = previousOverscrollBehavior;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || initialMode !== "scan" || initialModeStartedRef.current) {
+      return;
+    }
+
+    initialModeStartedRef.current = true;
+    const timeoutId = window.setTimeout(() => {
+      void startCameraScanRef.current?.();
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [initialMode, open]);
 
   if (!open) {
     return null;
@@ -486,7 +507,7 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
 
           <div className="grid grid-cols-2 gap-3">
             <label className={fieldClass}>
-              <span>Quantite</span>
+              <span>Quantité</span>
               <input
                 className={controlClass}
                 value={quantity}
@@ -496,7 +517,7 @@ export function AddProductDialog({ open, onClose, onAdd, onPersisted }: AddProdu
             </label>
 
             <label className={fieldClass}>
-              <span>Unite</span>
+              <span>Unité</span>
               <select
                 className={controlClass}
                 value={unit}

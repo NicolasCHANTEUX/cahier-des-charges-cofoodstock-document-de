@@ -44,7 +44,7 @@ export function ShoppingView() {
   const [completingList, setCompletingList] = useState(false);
   const [shoppingError, setShoppingError] = useState<string | null>(null);
   const [newItemLabel, setNewItemLabel] = useState("");
-  const [newItemQuantity, setNewItemQuantity] = useState("1");
+  const [newItemQuantity, setNewItemQuantity] = useState("");
   const shoppingItemImagesRef = useRef(shoppingItemImages);
   const dismissedCompletionKeysRef = useRef(dismissedCompletionKeys);
 
@@ -80,7 +80,7 @@ export function ShoppingView() {
     }
   }, [applyShoppingPayload]);
 
-  const loadSuggestions = useCallback(async (hiddenIds: string[]) => {
+  const loadSuggestions = useCallback(async () => {
     try {
       setLoadingSuggestions(true);
       const currentDiet = readStoredDiet();
@@ -96,7 +96,7 @@ export function ShoppingView() {
       }
 
       const payload = (await response.json()) as { suggestions: ShoppingSuggestion[] };
-      setSuggestions(payload.suggestions.filter((item) => !hiddenIds.includes(item.id)));
+      setSuggestions(payload.suggestions ?? []);
     } catch {
       setSuggestions([]);
     } finally {
@@ -118,7 +118,7 @@ export function ShoppingView() {
     }
 
     void loadShoppingState();
-    void loadSuggestions(storedHiddenIds);
+    void loadSuggestions();
   }, [loadShoppingState, loadSuggestions]);
 
   useEffect(() => {
@@ -139,6 +139,10 @@ export function ShoppingView() {
   const completedItems = useMemo(
     () => groups.reduce((sum, group) => sum + group.items.filter((item) => item.checked).length, 0),
     [groups]
+  );
+  const visibleSuggestions = useMemo(
+    () => suggestions.filter((item) => !hiddenSuggestionIds.includes(item.id)).slice(0, 8),
+    [hiddenSuggestionIds, suggestions]
   );
 
   async function mutateShopping(actionPayload: Record<string, unknown>, imageMap = shoppingItemImages) {
@@ -178,7 +182,7 @@ export function ShoppingView() {
         category: "other"
       });
       setNewItemLabel("");
-      setNewItemQuantity("1");
+      setNewItemQuantity("");
     } catch {
       setShoppingError("Impossible d'ajouter cet article.");
     } finally {
@@ -192,6 +196,19 @@ export function ShoppingView() {
       setShoppingError(null);
     } catch {
       setShoppingError("Impossible de mettre à jour cet article.");
+    }
+  }
+
+  async function checkAllItems() {
+    if (totalItems === 0 || completedItems === totalItems) {
+      return;
+    }
+
+    try {
+      await mutateShopping({ action: "toggle_all", checked: true });
+      setShoppingError(null);
+    } catch {
+      setShoppingError("Impossible de cocher toute la liste.");
     }
   }
 
@@ -227,7 +244,6 @@ export function ShoppingView() {
         },
         nextImageMap
       );
-      setSuggestions((current) => current.filter((candidate) => candidate.id !== suggestion.id));
       setHiddenSuggestionIds((current) => (current.includes(suggestion.id) ? current : [...current, suggestion.id]));
     } catch {
       setShoppingError("Impossible d'ajouter cette suggestion.");
@@ -257,23 +273,21 @@ export function ShoppingView() {
   }
 
   function hideSuggestion(itemId: string) {
-    setSuggestions((current) => current.filter((candidate) => candidate.id !== itemId));
     setHiddenSuggestionIds((current) => (current.includes(itemId) ? current : [...current, itemId]));
   }
 
   function clearSuggestions() {
     setHiddenSuggestionIds((current) => {
-      const merged = new Set([...current, ...suggestions.map((item) => item.id)]);
+      const merged = new Set([...current, ...visibleSuggestions.map((item) => item.id)]);
       return Array.from(merged);
     });
-    setSuggestions([]);
   }
 
   function resetSuggestions() {
     setLoadingSuggestions(true);
     window.localStorage.removeItem(SHOPPING_SUGGESTIONS_STORAGE_KEY);
     setHiddenSuggestionIds([]);
-    void loadSuggestions([]);
+    void loadSuggestions();
   }
 
   async function completeShopping() {
@@ -344,7 +358,7 @@ export function ShoppingView() {
               <Button
                 variant="ghost"
                 className="h-9 w-9 shrink-0 px-0 text-slate-500 hover:text-slate-900"
-                aria-label="Masquer le rappel de courses terminees"
+                aria-label="Masquer le rappel de courses terminées"
                 onClick={dismissCompletedSession}
               >
                 <X className="h-4 w-4" />
@@ -387,7 +401,16 @@ export function ShoppingView() {
                 {totalItems} article{totalItems > 1 ? "s" : ""} · {completedItems} cochés
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                className="h-9 gap-2 px-3"
+                onClick={() => void checkAllItems()}
+                disabled={loadingList || totalItems === 0 || completedItems === totalItems}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Tout cocher
+              </Button>
               <Button variant="secondary" className="h-9 gap-2 px-3" onClick={() => void restoreInitialState()} disabled={completingList}>
                 <RotateCcw className="h-4 w-4" />
                 Réinitialiser
@@ -476,14 +499,14 @@ export function ShoppingView() {
         </Card>
 
         <Card className="min-w-0">
-          <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="truncate font-bold">Suggestions Open Food Facts</h2>
-            <div className="flex shrink-0 gap-2">
+          <div className="mb-4 flex min-w-0 flex-col items-start gap-3">
+            <h2 className="font-bold">Suggestions Open Food Facts</h2>
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" className="h-9 gap-2 px-3" onClick={resetSuggestions}>
                 <RotateCcw className="h-4 w-4" />
                 Rafraîchir
               </Button>
-              <Button variant="ghost" className="h-9 gap-2 px-3 text-rose-600" onClick={clearSuggestions} disabled={suggestions.length === 0}>
+              <Button variant="ghost" className="h-9 gap-2 px-3 text-rose-600" onClick={clearSuggestions} disabled={visibleSuggestions.length === 0}>
                 <Trash2 className="h-4 w-4" />
                 Vider
               </Button>
@@ -493,7 +516,7 @@ export function ShoppingView() {
           {loadingSuggestions ? <p className="text-sm text-slate-500">Chargement des suggestions Open Food Facts...</p> : null}
 
           <div className="space-y-3">
-            {suggestions.map((item, index) => (
+            {visibleSuggestions.map((item, index) => (
               <div
                 key={item.id}
                 className="stagger-item-enter flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 p-3"
@@ -523,7 +546,7 @@ export function ShoppingView() {
               </div>
             ))}
 
-            {!loadingSuggestions && suggestions.length === 0 ? (
+            {!loadingSuggestions && visibleSuggestions.length === 0 ? (
               <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
                 Plus de suggestions visibles. Rafraîchis la liste pour en récupérer depuis Open Food Facts.
               </div>

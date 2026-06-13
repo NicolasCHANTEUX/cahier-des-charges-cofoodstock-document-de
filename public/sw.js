@@ -1,6 +1,6 @@
-const CACHE_NAME = "ecofoodstock-v2";
+const CACHE_NAME = "ecofoodstock-v3";
 const OFFLINE_URL = "/offline.html";
-const APP_SHELL = [OFFLINE_URL, "/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg", "/apple-touch-icon.svg"];
+const APP_SHELL = [OFFLINE_URL, "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 const APP_SHELL_SET = new Set(APP_SHELL);
 
 function isLocalDevelopment() {

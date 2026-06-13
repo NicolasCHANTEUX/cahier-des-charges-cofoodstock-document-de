@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import { Box, MinusCircle, Plus, Trash2, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -10,20 +11,23 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ProductThumbnail } from "@/components/shared/ProductThumbnail";
 import { AddProductDialog } from "@/features/inventory/AddProductDialog";
 import { formatQuantity } from "@/lib/units";
+import { routes } from "@/lib/routes";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { InventoryItem } from "@/types/domain";
 
-const filters = ["Tous", "Frais", "Surgeles", "Sec", "DLC Proche"];
+const filters = ["Tous", "Frais", "Surgelés", "Sec", "DLC Proche"];
 const inventoryActionButtonClass = "h-8 min-w-0 gap-1 px-1.5 text-[11px] sm:h-9 sm:gap-2 sm:px-3 sm:text-sm";
 const inventoryActionIconClass = "h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4";
 
 export function InventoryView() {
+  const router = useRouter();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("Tous");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addDialogMode, setAddDialogMode] = useState<"manual" | "scan">("manual");
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [quantityPrompt, setQuantityPrompt] = useState<{
     title: string;
@@ -58,6 +62,30 @@ export function InventoryView() {
   useEffect(() => {
     void loadInventory();
   }, []);
+
+  useEffect(() => {
+    const addMode = new URLSearchParams(window.location.search).get("add");
+
+    if (addMode === "scan" || addMode === "manual") {
+      setAddDialogMode(addMode);
+      setAddDialogOpen(true);
+      router.replace(routes.inventory, { scroll: false });
+    }
+
+    function openFromSidebar(event: Event) {
+      const mode = (event as CustomEvent<{ mode?: "manual" | "scan" }>).detail?.mode;
+
+      if (mode !== "scan" && mode !== "manual") {
+        return;
+      }
+
+      setAddDialogMode(mode);
+      setAddDialogOpen(true);
+    }
+
+    window.addEventListener("ecofoodstock:open-add-product", openFromSidebar);
+    return () => window.removeEventListener("ecofoodstock:open-add-product", openFromSidebar);
+  }, [router]);
 
   const filteredInventory = useMemo(() => {
     return inventory.filter((item) => {
@@ -114,8 +142,8 @@ export function InventoryView() {
   async function askDecrease(item: InventoryItem, action: "consume" | "waste" | "adjust") {
     const defaultAmount = action === "waste" ? item.quantity : Math.min(item.quantity, getDefaultDecreaseAmount(item));
     const value = await openQuantityPrompt({
-      title: action === "waste" ? `Quelle quantite de "${item.name}" voulez-vous jeter ?` : `Quelle quantite de "${item.name}" voulez-vous consommer ?`,
-      description: action === "waste" ? "Saisissez la quantité à retirer du stock." : "Saisissez la quantité à retirer du stock.",
+      title: action === "waste" ? `Quelle quantité de "${item.name}" voulez-vous jeter ?` : `Quelle quantité de "${item.name}" voulez-vous consommer ?`,
+      description: "Saisissez la quantité à retirer du stock.",
       defaultValue: String(defaultAmount)
     });
 
@@ -140,7 +168,13 @@ export function InventoryView() {
           title="Mon inventaire"
           description={loading ? "Chargement des produits..." : `${inventory.length} produits en stock`}
         />
-        <Button className="gap-2" onClick={() => setAddDialogOpen(true)}>
+        <Button
+          className="gap-2"
+          onClick={() => {
+            setAddDialogMode("manual");
+            setAddDialogOpen(true);
+          }}
+        >
           <Plus className="h-4 w-4" />
           Ajouter
         </Button>
@@ -176,7 +210,7 @@ export function InventoryView() {
           </div>
         ) : filteredInventory.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
-            <p className="font-semibold">Aucun produit trouve</p>
+            <p className="font-semibold">Aucun produit trouvé</p>
             <p className="mt-1 text-sm text-slate-500">
               Modifiez la recherche ou ajoutez un produit au stock.
             </p>
@@ -186,10 +220,9 @@ export function InventoryView() {
             {filteredInventory.map((item, index) => (
               <div
                 key={item.id}
-                className="stagger-item-enter rounded-lg border border-slate-200 px-3 py-2 sm:grid sm:grid-cols-[auto_auto_1fr_auto_auto] sm:items-center sm:gap-3 sm:py-3"
+                className="stagger-item-enter rounded-lg border border-slate-200 px-3 py-2 sm:grid sm:grid-cols-[auto_1fr_auto_auto] sm:items-center sm:gap-3 sm:py-3"
                 style={{ "--stagger-item-delay": `${Math.min(index * 34, 220)}ms` } as CSSProperties}
               >
-                <input className="hidden h-5 w-5 rounded border-slate-300 sm:block" type="checkbox" />
                 <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 sm:contents">
                   <ProductThumbnail name={item.name} imageUrl={item.imageUrl} fallbackLabel={item.icon} />
                   <div className="min-w-0">
@@ -216,7 +249,7 @@ export function InventoryView() {
                       onClick={() => askDecrease(item, "adjust")}
                     >
                       <MinusCircle className={inventoryActionIconClass} />
-                      Reduire
+                      Réduire
                     </Button>
                     <Button
                       variant="secondary"
@@ -225,7 +258,7 @@ export function InventoryView() {
                       onClick={() => askDecrease(item, "consume")}
                     >
                       <Utensils className={inventoryActionIconClass} />
-                      Consomme
+                      Consommé
                     </Button>
                     <Button
                       variant="ghost"
@@ -234,7 +267,7 @@ export function InventoryView() {
                       onClick={() => askDecrease(item, "waste")}
                     >
                       <Trash2 className={inventoryActionIconClass} />
-                      Jete
+                      Jeté
                     </Button>
                   </div>
                 </div>
@@ -246,6 +279,7 @@ export function InventoryView() {
 
       <AddProductDialog
         open={addDialogOpen}
+        initialMode={addDialogMode}
         onClose={() => setAddDialogOpen(false)}
         onPersisted={() => {
           setAddDialogOpen(false);
@@ -293,7 +327,7 @@ function matchesInventoryFilter(item: InventoryItem, filter: string) {
     return item.storageArea === "fresh";
   }
 
-  if (filter === "Surgeles") {
+  if (filter === "Surgelés") {
     return item.storageArea === "frozen";
   }
 

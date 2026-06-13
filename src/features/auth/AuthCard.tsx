@@ -74,7 +74,7 @@ export function AuthCard() {
 
   async function handleOAuth(provider: "google" | "apple") {
     if (!acceptedLegalTerms) {
-      setErrorMessage("Cochez l'acceptation des CGU et de la politique de confidentialite avant de continuer avec Google ou Apple.");
+      setErrorMessage("Cochez l'acceptation des CGU et de la politique de confidentialité avant de continuer avec Google ou Apple.");
       setSuccessMessage(null);
       return;
     }
@@ -98,7 +98,7 @@ export function AuthCard() {
         const lowerMessage = error.message.toLowerCase();
         if (lowerMessage.includes("unsupported provider") || lowerMessage.includes("provider is not enabled") || error.status === 400) {
           throw new Error(
-            `${provider === "google" ? "Google" : "Apple"} n'est pas active dans Supabase. Activez ce provider dans Authentication > Providers.`
+            `${provider === "google" ? "Google" : "Apple"} n'est pas activé dans Supabase. Activez ce provider dans Authentication > Providers.`
           );
         }
 
@@ -108,7 +108,7 @@ export function AuthCard() {
       window.localStorage.removeItem(PENDING_LEGAL_CONSENT_KEY);
       const message = (err as Error).message ?? "Erreur OAuth";
       if (message.toLowerCase().includes("provider is not enabled") || message.toLowerCase().includes("unsupported provider")) {
-        setErrorMessage("Google/Apple n'est pas active dans Supabase. Activez le provider dans le dashboard ou utilisez l'email.");
+        setErrorMessage("Google/Apple n'est pas activé dans Supabase. Activez le provider dans le dashboard ou utilisez l'email.");
         return;
       }
 
@@ -122,7 +122,7 @@ export function AuthCard() {
     const cleanEmail = email.trim();
 
     if (!cleanEmail) {
-      setErrorMessage("Renseignez votre email, puis relancez la reinitialisation du mot de passe.");
+      setErrorMessage("Renseignez votre email, puis relancez la réinitialisation du mot de passe.");
       setSuccessMessage(null);
       return;
     }
@@ -141,9 +141,9 @@ export function AuthCard() {
         throw error;
       }
 
-      setSuccessMessage("Email envoye. Ouvrez le lien recu pour choisir un nouveau mot de passe.");
+      setSuccessMessage("Email envoyé. Ouvrez le lien reçu pour choisir un nouveau mot de passe.");
     } catch (err) {
-      setErrorMessage((err as Error).message ?? "Impossible d'envoyer l'email de reinitialisation.");
+      setErrorMessage((err as Error).message ?? "Impossible d'envoyer l'email de réinitialisation.");
     } finally {
       setLoading(false);
     }
@@ -156,7 +156,7 @@ export function AuthCard() {
     setSuccessMessage(null);
 
     if (newPassword.length < 8) {
-      setErrorMessage("Le nouveau mot de passe doit contenir au moins 8 caracteres.");
+      setErrorMessage("Le nouveau mot de passe doit contenir au moins 8 caractères.");
       setLoading(false);
       return;
     }
@@ -172,7 +172,7 @@ export function AuthCard() {
       const { data: sessionData } = await supabase.auth.getSession();
 
       if (!sessionData.session) {
-        throw new Error("Le lien de reinitialisation a expire. Relancez la demande depuis l'ecran de connexion.");
+        throw new Error("Le lien de réinitialisation a expiré. Relancez la demande depuis l'écran de connexion.");
       }
 
       const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -187,9 +187,9 @@ export function AuthCard() {
       setPassword("");
       setNewPassword("");
       setNewPasswordConfirmation("");
-      setSuccessMessage("Mot de passe mis a jour. Vous pouvez vous reconnecter.");
+      setSuccessMessage("Mot de passe mis à jour. Vous pouvez vous reconnecter.");
     } catch (err) {
-      setErrorMessage((err as Error).message ?? "Impossible de mettre a jour le mot de passe.");
+      setErrorMessage((err as Error).message ?? "Impossible de mettre à jour le mot de passe.");
     } finally {
       setLoading(false);
     }
@@ -202,13 +202,13 @@ export function AuthCard() {
     setSuccessMessage(null);
 
     if (isSignUp && !fullName.trim()) {
-      setErrorMessage("Nom et prenom requis.");
+      setErrorMessage("Nom et prénom requis.");
       setLoading(false);
       return;
     }
 
     if (isSignUp && !acceptedLegalTerms) {
-      setErrorMessage("Vous devez accepter les CGU et la politique de confidentialite pour creer un compte.");
+      setErrorMessage("Vous devez accepter les CGU et la politique de confidentialité pour créer un compte.");
       setLoading(false);
       return;
     }
@@ -239,19 +239,19 @@ export function AuthCard() {
 
         if (!res.ok) {
           const body = await res.json().catch(() => null);
-          throw new Error(body?.error ?? "La creation du compte a echoue.");
+          throw new Error(body?.error ?? "La création du compte a échoué.");
         }
 
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) {
           if (signInError.message.toLowerCase().includes("email not confirmed")) {
-            throw new Error("Votre compte a ete cree, mais l'email doit etre confirme dans Supabase. Activez l'autoconfirmation ou confirmez ce compte dans le dashboard.");
+            throw new Error("Votre compte a été créé, mais l'email doit être confirmé dans Supabase. Activez l'autoconfirmation ou confirmez ce compte dans le dashboard.");
           }
 
           throw signInError;
         }
 
-        setSuccessMessage("Compte cree. Redirection...");
+        setSuccessMessage("Compte créé. Redirection...");
         router.push(routes.onboarding);
         return;
       }
@@ -259,7 +259,7 @@ export function AuthCard() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      setSuccessMessage("Connexion reussie. Redirection...");
+      setSuccessMessage("Connexion réussie. Redirection...");
       const status = await getBrowserAccountStatus();
       const target = status.onboardingCompleted ? safeNextPath : routes.onboarding;
 
@@ -280,7 +280,7 @@ export function AuthCard() {
             <Box className="h-8 w-8" />
           </div>
           <h1 className="text-2xl font-bold">EcoFoodStock</h1>
-          <p className="mt-2 text-sm text-slate-600">Gerez votre stock, evitez le gaspillage</p>
+          <p className="mt-2 text-sm text-slate-600">Gérez votre stock, évitez le gaspillage</p>
         </div>
 
         {errorMessage ? (
@@ -297,7 +297,7 @@ export function AuthCard() {
         {passwordResetMode ? (
           <form className="space-y-4" onSubmit={handlePasswordUpdate}>
             <p className="text-sm text-slate-600">
-              Choisissez un nouveau mot de passe pour finaliser la reinitialisation.
+              Choisissez un nouveau mot de passe pour finaliser la réinitialisation.
             </p>
             <input
               className="h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500"
@@ -314,7 +314,7 @@ export function AuthCard() {
               onChange={(e) => setNewPasswordConfirmation(e.target.value)}
             />
             <Button className="w-full" type="submit" disabled={loading}>
-              {loading ? "Mise a jour..." : "Mettre a jour le mot de passe"}
+              {loading ? "Mise à jour..." : "Mettre à jour le mot de passe"}
             </Button>
             <button
               className="w-full text-sm font-semibold text-brand-700"
@@ -326,7 +326,7 @@ export function AuthCard() {
                 setSuccessMessage(null);
               }}
             >
-              Revenir a la connexion
+              Revenir à la connexion
             </button>
           </form>
         ) : (
@@ -354,7 +354,7 @@ export function AuthCard() {
               {isSignUp ? (
                 <input
                   className="h-12 w-full rounded-lg border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500"
-                  placeholder="Nom et prenom"
+                  placeholder="Nom et prénom"
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -376,20 +376,20 @@ export function AuthCard() {
               />
               <div className="text-right">
                 <button className="text-sm font-medium text-brand-700 disabled:text-slate-400" type="button" onClick={() => void handleForgotPassword()} disabled={loading}>
-                  Mot de passe oublie ?
+                  Mot de passe oublié ?
                 </button>
               </div>
-              <Button className="w-full" type="submit" disabled={loading}>{isSignUp ? "Creer un compte" : "Se connecter"}</Button>
+              <Button className="w-full" type="submit" disabled={loading}>{isSignUp ? "Créer un compte" : "Se connecter"}</Button>
             </form>
 
             <p className="mt-8 text-center text-sm text-slate-600">
               {isSignUp ? (
                 <>
-                  Deja un compte ? <button className="font-semibold text-brand-700" onClick={() => setIsSignUp(false)}>Se connecter</button>
+                  Déjà un compte ? <button className="font-semibold text-brand-700" onClick={() => setIsSignUp(false)}>Se connecter</button>
                 </>
               ) : (
                 <>
-                  Pas encore de compte ? <button className="font-semibold text-brand-700" onClick={() => setIsSignUp(true)}>Creer un compte</button>
+                  Pas encore de compte ? <button className="font-semibold text-brand-700" onClick={() => setIsSignUp(true)}>Créer un compte</button>
                 </>
               )}
             </p>
@@ -422,9 +422,9 @@ function LegalConsentCheckbox({
         </a>{" "}
         et la{" "}
         <a className="font-semibold text-brand-700 underline-offset-2 hover:underline" href="/legal/privacy" target="_blank" rel="noreferrer">
-          politique de confidentialite
+          politique de confidentialité
         </a>
-        . Cette acceptation est necessaire pour creer un compte ou continuer avec Google/Apple.
+        . Cette acceptation est nécessaire pour créer un compte ou continuer avec Google/Apple.
       </span>
     </label>
   );

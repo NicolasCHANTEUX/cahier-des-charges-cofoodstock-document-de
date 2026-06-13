@@ -69,7 +69,9 @@ export function DashboardView() {
                 {loading && !data ? "Récupération en cours..." : `${data?.summary.inventoryCount ?? 0} produits`}
               </p>
             </div>
-            <Badge tone="green">{data?.summary.expiringCount ?? 0} DLC proches</Badge>
+            <Badge tone="green" className="bg-emerald-100 text-emerald-900">
+              {data?.summary.expiringCount ?? 0} DLC proches
+            </Badge>
           </div>
 
           {error ? <p className="mb-4 text-sm text-rose-600">{error}</p> : null}

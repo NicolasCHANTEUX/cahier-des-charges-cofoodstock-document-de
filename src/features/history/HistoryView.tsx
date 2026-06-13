@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { History } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { groupActivityEvents } from "@/lib/activity-events";
 import { getBrowserAuthHeaders } from "@/lib/supabase/browser-auth";
 import type { ActivityEvent } from "@/types/domain";
 
-const filters = ["Tout", "Entrees", "Consommes", "Jetes", "Parametres"];
+const filters = ["Tout", "Entrées", "Consommés", "Jetés", "Paramètres"];
 const SETTINGS_STORAGE_KEY = "ecofoodstock:settings-profile";
 
 export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
@@ -19,6 +20,7 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState("Tout");
   const [undoingEventId, setUndoingEventId] = useState<string | null>(null);
+  const [pendingUndoEvent, setPendingUndoEvent] = useState<ActivityEvent | null>(null);
 
   useEffect(() => {
     void loadHistory();
@@ -97,7 +99,7 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
 
   return (
     <div>
-      {!embedded ? <PageHeader icon={History} title="Historique d'activite" /> : null}
+      {!embedded ? <PageHeader icon={History} title="Historique d'activité" /> : null}
 
       {error ? (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -121,7 +123,7 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
         </Card>
       ) : visibleGroups.length === 0 ? (
         <Card className="p-8 text-center">
-          <p className="font-semibold">Aucune activite pour ce filtre</p>
+          <p className="font-semibold">Aucune activité pour ce filtre</p>
           <p className="mt-1 text-sm text-slate-500">
             Les actions sur l'inventaire apparaitront ici.
           </p>
@@ -134,8 +136,12 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
                 {group.label}
               </h2>
               <Card className="space-y-1.5 p-1.5 sm:space-y-3 sm:p-3">
-                {group.events.map((event) => (
-                  <div key={event.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 sm:gap-3 sm:p-2">
+                {group.events.map((event, eventIndex) => (
+                  <div
+                    key={event.id}
+                    className="stagger-item-enter grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 sm:gap-3 sm:p-2"
+                    style={{ "--stagger-item-delay": `${Math.min(eventIndex * 32, 180)}ms` } as CSSProperties}
+                  >
                     <span className={`h-2.5 w-2.5 rounded-full sm:h-3 sm:w-3 ${event.color}`} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium leading-5 text-slate-900 sm:text-base" title={event.title}>{event.title}</p>
@@ -147,7 +153,7 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
                       <Button
                         variant="secondary"
                         className="h-7 shrink-0 px-2 text-[11px] sm:h-8 sm:px-3 sm:text-xs"
-                        onClick={() => void undoEvent(event)}
+                        onClick={() => setPendingUndoEvent(event)}
                         disabled={undoingEventId === event.id}
                       >
                         {undoingEventId === event.id ? "Annulation..." : "Annuler"}
@@ -160,6 +166,21 @@ export function HistoryView({ embedded = false }: { embedded?: boolean } = {}) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingUndoEvent !== null}
+        title="Annuler cette action ?"
+        description={pendingUndoEvent ? `L'action "${pendingUndoEvent.title}" sera inversée si c'est encore possible.` : undefined}
+        confirmLabel="Annuler l'action"
+        onCancel={() => setPendingUndoEvent(null)}
+        onConfirm={() => {
+          const event = pendingUndoEvent;
+          setPendingUndoEvent(null);
+          if (event) {
+            void undoEvent(event);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -171,19 +192,19 @@ function matchesActivityFilter(event: ActivityEvent, filter: string) {
     return true;
   }
 
-  if (filter === "Entrees") {
+  if (filter === "Entrées") {
     return event.type === "product_added" && !isSettingsEvent;
   }
 
-  if (filter === "Consommes") {
+  if (filter === "Consommés") {
     return (event.type === "product_consumed" || event.type === "product_adjusted") && !isSettingsEvent;
   }
 
-  if (filter === "Jetes") {
+  if (filter === "Jetés") {
     return event.type === "product_wasted" && !isSettingsEvent;
   }
 
-  if (filter === "Parametres") {
+  if (filter === "Paramètres") {
     return isSettingsEvent;
   }
 

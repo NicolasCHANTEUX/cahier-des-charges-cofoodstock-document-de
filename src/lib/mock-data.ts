@@ -115,8 +115,8 @@ export const historyGroups: ActivityGroup[] = [
       {
         id: "1",
         type: "product_consumed",
-        title: "Lait Lactel termine",
-        description: "Utilise normalement",
+        title: "Lait Lactel terminé",
+        description: "Utilisé normalement",
         color: "bg-slate-400",
         canUndo: true,
         createdAt: "2026-05-29T13:37:00.000Z"
@@ -129,8 +129,8 @@ export const historyGroups: ActivityGroup[] = [
       {
         id: "2",
         type: "product_wasted",
-        title: "Yaourt Activia x4 jete",
-        description: "Raison : perime",
+        title: "Yaourt Activia x4 jeté",
+        description: "Raison : périmé",
         color: "bg-rose-500",
         canUndo: true,
         createdAt: "2026-05-28T15:43:00.000Z"
@@ -138,7 +138,7 @@ export const historyGroups: ActivityGroup[] = [
       {
         id: "3",
         type: "product_added",
-        title: "+1 Lait Lactel ajoute au stock",
+        title: "+1 Lait Lactel ajouté au stock",
         description: "Ajout manuel",
         color: "bg-emerald-500",
         canUndo: true,

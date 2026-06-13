@@ -16,10 +16,12 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
       { url: "/icon.svg", type: "image/svg+xml" }
     ],
     shortcut: "/favicon.ico",
-    apple: "/icon.svg"
+    apple: "/apple-touch-icon.png"
   }
 };
 
@@ -58,6 +60,27 @@ export default function RootLayout({
                   document.documentElement.dataset.themePreference = "system";
                   document.documentElement.style.colorScheme = "light";
                 }
+              })();
+            `
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                if (window.__ecofoodstockInstallPromptCaptureReady) return;
+                window.__ecofoodstockInstallPromptCaptureReady = true;
+
+                window.addEventListener("beforeinstallprompt", function (event) {
+                  event.preventDefault();
+                  window.__ecofoodstockBeforeInstallPrompt = event;
+                  window.dispatchEvent(new Event("ecofoodstock:beforeinstallprompt"));
+                });
+
+                window.addEventListener("appinstalled", function () {
+                  window.__ecofoodstockBeforeInstallPrompt = null;
+                  window.dispatchEvent(new Event("ecofoodstock:appinstalled"));
+                });
               })();
             `
           }}

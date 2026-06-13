@@ -18,7 +18,7 @@ const navItems = [
   { href: routes.dashboard, label: "Accueil", icon: Home },
   { href: routes.inventory, label: "Inventaire", icon: Box },
   { href: routes.shopping, label: "Courses", icon: ShoppingCart },
-  { href: routes.settings, label: "Parametres", icon: Settings }
+  { href: routes.settings, label: "Paramètres", icon: Settings }
 ];
 
 const mobileRouteHrefs = new Set<string>([
@@ -40,7 +40,7 @@ export function Sidebar() {
           </div>
           <div>
             <p className="text-lg font-bold">EcoFoodStock</p>
-            <p className="text-xs text-white/70">Foyer partage</p>
+            <p className="text-xs text-white/70">Foyer partagé</p>
           </div>
         </div>
 
@@ -62,8 +62,9 @@ export function Sidebar() {
                   }
                 }}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-white/90 transition",
-                  active && "bg-white/18 text-white",
+                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition",
+                  active && "bg-white text-brand-700 shadow-sm",
+                  !active && "text-white/90",
                   !active && "hover:bg-white/10"
                 )}
               >
@@ -76,9 +77,12 @@ export function Sidebar() {
 
         <div className="space-y-3 p-4">
           <Link
-            href={routes.inventory}
-            onClick={() => {
-              if (pathname !== routes.inventory) {
+            href={`${routes.inventory}?add=scan`}
+            onClick={(event) => {
+              if (pathname === routes.inventory) {
+                event.preventDefault();
+                window.dispatchEvent(new CustomEvent("ecofoodstock:open-add-product", { detail: { mode: "scan" } }));
+              } else {
                 startNavigationLoading();
               }
             }}
@@ -88,9 +92,12 @@ export function Sidebar() {
             Scanner un produit
           </Link>
           <Link
-            href={routes.inventory}
-            onClick={() => {
-              if (pathname !== routes.inventory) {
+            href={`${routes.inventory}?add=manual`}
+            onClick={(event) => {
+              if (pathname === routes.inventory) {
+                event.preventDefault();
+                window.dispatchEvent(new CustomEvent("ecofoodstock:open-add-product", { detail: { mode: "manual" } }));
+              } else {
                 startNavigationLoading();
               }
             }}

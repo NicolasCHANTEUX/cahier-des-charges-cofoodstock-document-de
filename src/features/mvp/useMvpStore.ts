@@ -39,14 +39,14 @@ const initialState: MvpState = {
   activityEvents: [
     createEvent({
       type: "product_consumed",
-      title: "Lait Lactel termine",
-      description: "Utilise normalement",
+      title: "Lait Lactel terminé",
+      description: "Utilisé normalement",
       color: "bg-slate-400",
       canUndo: false
     }),
     createEvent({
       type: "product_added",
-      title: "+1 Lait Lactel ajoute au stock",
+      title: "+1 Lait Lactel ajouté au stock",
       description: "Ajout manuel",
       color: "bg-emerald-500",
       canUndo: false
@@ -111,7 +111,7 @@ export function useMvpStore() {
       activityEvents: [
         createEvent({
           type: "product_added",
-          title: `${item.name} ajoute au stock`,
+          title: `${item.name} ajouté au stock`,
           description: `${formatQuantity(item.quantity, item.unit)} - ajout manuel`,
           color: "bg-emerald-500",
           canUndo: true,
@@ -143,8 +143,8 @@ export function useMvpStore() {
         activityEvents: [
           createEvent({
             type: "product_consumed",
-            title: `${item.name} consomme`,
-            description: `${formatQuantity(amount, item.unit)} retire du stock`,
+            title: `${item.name} consommé`,
+            description: `${formatQuantity(amount, item.unit)} retiré du stock`,
             color: "bg-slate-400",
             canUndo: true,
             undoPayload:
@@ -177,7 +177,7 @@ export function useMvpStore() {
         activityEvents: [
           createEvent({
             type: isWaste ? "product_wasted" : "product_consumed",
-            title: `${item.name} ${isWaste ? "jete" : "consomme"}`,
+            title: `${item.name} ${isWaste ? "jeté" : "consommé"}`,
             description: `${formatQuantity(item.quantity, item.unit)} sorti du stock`,
             color: isWaste ? "bg-rose-500" : "bg-slate-400",
             canUndo: true,

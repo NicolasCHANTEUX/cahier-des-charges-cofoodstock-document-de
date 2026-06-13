@@ -229,7 +229,7 @@ export async function POST(req: Request) {
         household_id: householdId,
         user_id: context.appUserId ?? null,
         type: "product_added",
-        title: `+${numericQuantity} ${product.name} ajoute au stock`,
+        title: `+${numericQuantity} ${product.name} ajouté au stock`,
         description: `${numericQuantity} ${unit ?? "unit"} - ajout via scan`,
         product_id: productId,
         can_undo: true,
